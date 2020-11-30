@@ -12,6 +12,7 @@ use std::fs::File;
 use std::io::prelude::*;
 use std::io::Write;
 use std::path::Path;
+
 #[derive(Debug, Clone)]
 struct Tris {
     v_3d: [Point3<f32>; 3],
@@ -21,7 +22,6 @@ struct Tris {
     max: Point3<f32>,
     node_index: usize,
 }
-
 impl Bounded for Tris {
     fn aabb(&self) -> AABB {
         AABB::with_bounds(self.min, self.max)
@@ -36,6 +36,7 @@ impl BHShape for Tris {
         self.node_index
     }
 }
+
 #[derive(Debug)]
 struct Mesh {
     tris: Vec<Tris>,
@@ -52,7 +53,6 @@ struct CameraJSON {
     cameraRotation: Vec<f32>,
     imageName: String,
 }
-
 #[derive(Debug)]
 struct CameraRaw {
     pos: Point3<f32>,
