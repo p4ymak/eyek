@@ -14,20 +14,48 @@ use std::io::Write;
 use std::path::Path;
 
 #[derive(Debug, Clone)]
-struct Tris {
+struct Tris2D {
+    a: Point3<f32>,
+    b: Point3<f32>,
+    c: Point3<f32>,
+}
+impl Tris2D {
+    fn has_point(&self, pt: Point3<f32>) -> bool {
+        fn sign(a: Point3<f32>, b: Point3<f32>, c: Point3<f32>) -> f32 {
+            (a.x - c.x) * (b.y - c.y) - (b.x - c.x) * (a.y - c.y)
+        }
+        let d1 = sign(pt, self.a, self.b);
+        let d2 = sign(pt, self.b, self.c);
+        let d3 = sign(pt, self.c, self.a);
+        let has_neg = (d1 < 0.0) || (d2 < 0.0) || (d3 < 0.0);
+        let has_pos = (d1 > 0.0) || (d2 > 0.0) || (d3 > 0.0);
+        !(has_neg && has_pos)
+    }
+    fn bounds(&self) -> [f32; 4] {
+        let mut coords_x = [self.a.x, self.b.x, self.c.x];
+        let mut coords_y = [self.a.y, self.b.y, self.c.y];
+        coords_x.sort_by(|i, j| i.partial_cmp(j).unwrap());
+        coords_y.sort_by(|i, j| i.partial_cmp(j).unwrap());
+        //return min_x, min_y, max_x, max_y of triangle
+        [coords_x[0], coords_y[0], coords_x[2], coords_y[2]]
+    }
+}
+
+#[derive(Debug, Clone)]
+struct Tris3D {
     v_3d: [Point3<f32>; 3],
-    v_uv: [Point3<f32>; 3],
+    v_uv: Tris2D,
     min: Point3<f32>,
     mid: Point3<f32>,
     max: Point3<f32>,
     node_index: usize,
 }
-impl Bounded for Tris {
+impl Bounded for Tris3D {
     fn aabb(&self) -> AABB {
         AABB::with_bounds(self.min, self.max)
     }
 }
-impl BHShape for Tris {
+impl BHShape for Tris3D {
     fn set_bh_node_index(&mut self, index: usize) {
         self.node_index = index;
     }
@@ -39,7 +67,7 @@ impl BHShape for Tris {
 
 #[derive(Debug)]
 struct Mesh {
-    tris: Vec<Tris>,
+    tris: Vec<Tris3D>,
     //aabb: [[f32; 3]; 2],
 }
 
@@ -60,9 +88,9 @@ struct CameraRaw {
     img_path: String,
 }
 
-fn load_meshes(path_obj: &str) -> Vec<Tris> {
+fn load_meshes(path_obj: &str) -> Vec<Tris3D> {
     let data = obj::Obj::load(path_obj).unwrap().data;
-    let mut tris = Vec::<Tris>::new();
+    let mut tris = Vec::<Tris3D>::new();
     let mut tris_id: usize = 0;
     for obj in data.objects {
         for group in obj.groups {
@@ -98,9 +126,13 @@ fn load_meshes(path_obj: &str) -> Vec<Tris> {
                     let tr_mid_x = (tr_min_x + tr_max_x) / 2.0;
                     let tr_mid_y = (tr_min_y + tr_max_y) / 2.0;
                     let tr_mid_z = (tr_min_z + tr_max_z) / 2.0;
-                    tris.push(Tris {
+                    tris.push(Tris3D {
                         v_3d: [vs_pos[0], vs_pos[1], vs_pos[2]],
-                        v_uv: [vs_uv[0], vs_uv[1], vs_uv[2]],
+                        v_uv: Tris2D {
+                            a: vs_uv[0],
+                            b: vs_uv[1],
+                            c: vs_uv[2],
+                        },
                         min: Point3::new(tr_min_x, tr_min_y, tr_min_z),
                         mid: Point3::new(tr_mid_x, tr_mid_y, tr_mid_z),
                         max: Point3::new(tr_max_x, tr_max_y, tr_max_z),
@@ -152,7 +184,7 @@ fn load_cameras(path_json_imgs: &str) -> Vec<CameraRaw> {
 fn main() {
     let path_obj = "/home/p4ymak/Work/Phygitalism/201127_Raskrasser/tests/suz_center.obj";
     let path_json_imgs = "/home/p4ymak/Work/Phygitalism/201109_Projector/from_und3ve10p3d/test_0";
-    let mut faces: Vec<Tris> = load_meshes(path_obj);
+    let mut faces: Vec<Tris3D> = load_meshes(path_obj);
     let cameras = load_cameras(path_json_imgs);
     let bvh = BVH::build(&mut faces);
 
