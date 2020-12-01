@@ -4,6 +4,7 @@ use bvh::bvh::BVH;
 use bvh::nalgebra::geometry::{Perspective3, Quaternion};
 use bvh::nalgebra::{Point3, Vector3};
 use bvh::ray::Ray;
+use image::{ImageBuffer, Rgba, RgbaImage};
 use obj;
 use serde_derive::Deserialize;
 use serde_json;
@@ -44,7 +45,6 @@ impl Tris2D {
         let v1 = self.c - self.a;
         let v2 = pt - self.a;
         let den = 1.0 / (v0.x * v1.y - v1.x * v0.y);
-
         let v = (v2.x * v1.y - v1.x * v2.y) * den;
         let w = (v0.x * v2.y - v2.x * v0.y) * den;
         let u = 1.0 - v - w;
@@ -201,30 +201,10 @@ fn load_cameras(path_json_imgs: &str) -> Vec<CameraRaw> {
 fn main() {
     let path_obj = "/home/p4ymak/Work/Phygitalism/201127_Raskrasser/tests/suz_center.obj";
     let path_json_imgs = "/home/p4ymak/Work/Phygitalism/201109_Projector/from_und3ve10p3d/test_0";
+    let img_res: u32 = 1024;
+
     let mut faces: Vec<Tris3D> = load_meshes(path_obj);
     let cameras = load_cameras(path_json_imgs);
     let bvh = BVH::build(&mut faces);
-
-    let origin = Point3::new(0.0, 0.0, 0.0);
-    let tx = faces[0].v_3d[0][0] / 2.0;
-    let ty = faces[0].v_3d[0][1] / 2.0;
-    let tz = faces[0].v_3d[0][2] / 2.0;
-
-    let direction = Vector3::new(0.0, 1.0, 0.0);
-    let ray = Ray::new(origin, direction);
-    //let inter = ray.intersects_triangle(&face.v_3d[0], &face.v_3d[1], &face.v_3d[2]);
-    //println!("{:?} {:?} {:?}", inter.distance, inter.u, inter.v);
-    println!("Intersects: {:?}", bvh.traverse(&ray, &faces).len());
-    println!("{:?}", faces.len());
-
-    let p = Point3::new(0.25, -0.45, 0.0);
-    let a = Point3::new(0.0, 0.0, 0.0);
-    let b = Point3::new(1.0, 0.0, 0.0);
-    let c = Point3::new(1.0, 1.0, 0.0);
-    let tr = Tris2D { a: a, b: b, c: c };
-
-    let bary = tr.cartesian_to_barycentric(p);
-    let cart = tr.barycentric_to_cartesian(bary);
-
-    println!("P {:?} \nBary {:?}\nP'{:?}", p, bary, cart);
+    let mut texture = RgbaImage::new(img_res, img_res);
 }
