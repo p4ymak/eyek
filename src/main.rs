@@ -216,7 +216,7 @@ fn project_pixels(
     let pos_tr = Translation3::new(cam_x, cam_y, cam_z);
     let pos_pt = Point3::new(cam_x, cam_y, cam_z);
     let rot = camera_raw.rot.to_rotation_matrix();
-    let cam_target = pos_tr.transform_point(&rot.transform_point(&Point3::new(0.0, 0.0, -1.0)));
+    let cam_target = pos_tr.transform_point(&rot.transform_point(&Point3::new(2.0, 3.0, -1.0)));
     println!("CAM TARGET: {:?}", cam_target);
     let iso = Isometry3::look_at_rh(&pos_pt, &cam_target, &Vector3::y());
     let perspective = Perspective3::new(ratio, fovy, 1.0, 1000.0);
@@ -230,13 +230,11 @@ fn project_pixels(
     for y in 0..height {
         for x in 0..width {
             if !checked_pixels[x][y] {
-                let ray_target = iso.transform_point(&perspective.unproject_point(&Point3::new(
-                    x as f32 / width as f32,
-                    y as f32 / height as f32,
-                    -1.0,
-                )));
-                let ray_test = iso.inverse_transform_point(&Point3::new(0.0, 0.0, 1.0));
-                //println!("X{:?}\nY{:?}", cam_target, ray_test);
+                let ray_target = iso.inverse_transform_point(&perspective.unproject_point(
+                    &Point3::new(x as f32 / width as f32, y as f32 / height as f32, -1.0),
+                ));
+                let ray_test = iso.inverse_transform_point(&Point3::new(2.0, 3.0, -1.0));
+                println!("X{:?}\nY{:?}", cam_target, ray_test);
 
                 //println!("{:?}", ray_test);
                 let ray = Ray::new(
