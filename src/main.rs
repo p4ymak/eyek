@@ -127,7 +127,7 @@ fn load_meshes(path_obj: &str) -> Vec<Tris3D> {
                     let x = data.position[vert.0][0];
                     let y = data.position[vert.0][1];
                     //KOCTbIJIb
-                    let z = -data.position[vert.0][2];
+                    let z = data.position[vert.0][2];
                     let u = data.texture[vert.1.unwrap()][0];
                     let v = data.texture[vert.1.unwrap()][1];
 
@@ -209,12 +209,12 @@ fn project_pixels(
     let width = img.dimensions().0 as usize;
     let height = img.dimensions().1 as usize;
     let ratio = width as f32 / height as f32;
-    //let fovy =
+    let fovy = 0.541 / ratio;
     let [cam_x, cam_y, cam_z] = camera_raw.pos;
     let pos_tr = Translation3::new(cam_x, cam_y, cam_z);
     let pos_pt = Point3::new(cam_x, cam_y, cam_z);
     let iso = Isometry3::from_parts(pos_tr, camera_raw.rot);
-    let perspective = Perspective3::new(ratio, 3.14 / 2.0, 1.0, 1000.0);
+    let perspective = Perspective3::new(ratio, fovy, 1.0, 1000.0);
     //let projection = perspective.as_matrix() * iso.to_homogeneous();
 
     let mut checked_pixels: Vec<Vec<bool>> = Vec::with_capacity(width);
@@ -225,9 +225,11 @@ fn project_pixels(
     for y in 0..height {
         for x in 0..width {
             if !checked_pixels[x][y] {
-                let ray_target = iso.inverse_transform_point(&perspective.unproject_point(
-                    &Point3::new(x as f32 / width as f32, y as f32 / height as f32, 1.0),
-                ));
+                let ray_target = iso.transform_point(&perspective.unproject_point(&Point3::new(
+                    (x as f32 / width as f32) * 2.0 - 1.0,
+                    (y as f32 / height as f32) * 2.0 - 1.0,
+                    1.0,
+                )));
                 //  println!("{:?}", ray_target);
                 let ray = Ray::new(
                     pos_pt,
@@ -238,15 +240,18 @@ fn project_pixels(
                     checked_pixels[x][y] = true;
                     continue;
                 }
-                let face = closest_face(bvh.traverse(&ray, &faces), pos_pt);
-                face_img_to_uv(
-                    &face,
-                    &iso,
-                    &perspective,
-                    &mut checked_pixels,
-                    &img,
-                    &mut texture,
-                );
+
+                //let face = closest_face(bvh.traverse(&ray, &faces), pos_pt);
+                for face in collisions {
+                    face_img_to_uv(
+                        &face,
+                        &iso,
+                        &perspective,
+                        &mut checked_pixels,
+                        &img,
+                        &mut texture,
+                    );
+                }
             }
         }
     }
@@ -272,23 +277,82 @@ fn face_img_to_uv(
     face: &Tris3D,
     iso: &Isometry3<f32>,
     perspective: &Perspective3<f32>,
-    mut checked_pixels: &mut Vec<Vec<bool>>,
+    checked_pixels: &mut Vec<Vec<bool>>,
     img: &DynamicImage,
-    mut texture: &mut RgbaImage,
+    texture: &mut RgbaImage,
 ) {
+    let uv_width = texture.dimensions().0 as f32;
+    let uv_height = texture.dimensions().1 as f32;
+    let uv_min_x = (face.v_uv.bounds()[0] * uv_width).floor() as usize;
+    let uv_min_y = (face.v_uv.bounds()[1] * uv_height).floor() as usize;
+    let uv_max_x = (face.v_uv.bounds()[2] * uv_width).ceil() as usize;
+    let uv_max_y = (face.v_uv.bounds()[3] * uv_height).ceil() as usize;
+
+    let cam_width = img.dimensions().0 as f32;
+    let cam_height = img.dimensions().1 as f32;
+
+    let a_cam = perspective.project_point(&iso.inverse_transform_point(&face.v_3d[0]));
+    let b_cam = perspective.project_point(&iso.inverse_transform_point(&face.v_3d[1]));
+    let c_cam = perspective.project_point(&iso.inverse_transform_point(&face.v_3d[2]));
+
+    let face_cam = Tris2D {
+        a: a_cam,
+        b: b_cam,
+        c: c_cam,
+    };
+
+    for v in uv_min_y..uv_max_y {
+        for u in uv_min_x..uv_max_x {
+            let p_uv = Point3::new(u as f32 / uv_width as f32, v as f32 / uv_height as f32, 0.0);
+            if face.v_uv.has_point(p_uv) {
+                let p_bary = face.v_uv.cartesian_to_barycentric(p_uv);
+                let p_cam = face_cam.barycentric_to_cartesian(p_bary);
+                //       println!("{:?}", p_cam);
+                if face_cam.has_point(p_cam)
+                    && p_cam[0] > -1.0
+                    && p_cam[1] > -1.0
+                    && p_cam[0] < 1.0
+                    && p_cam[1] < 1.0
+                {
+                    let cam_x = (((p_cam[0] + 1.0) * cam_width / 2.0).floor() - 1.0) as u32;
+                    let cam_y = (((p_cam[1] + 1.0) * cam_height / 2.0).floor() - 1.0) as u32;
+                    //           println!("Cam X:{:?} Y:{:?}", cam_x, cam_y);
+                    checked_pixels[cam_x as usize][(cam_height - 1.0) as usize - cam_y as usize] =
+                        true;
+                    texture.put_pixel(
+                        u as u32,
+                        uv_height as u32 - v as u32,
+                        img.get_pixel(cam_x, (cam_height - 1.0) as u32 - cam_y),
+                    );
+                }
+            }
+        }
+    }
 }
 
 fn main() {
-    let path_obj =
-        "/home/p4/Work/Phygitalism/201127_Raskrasser/tests/test_0/Scan/TestScan42Scan.obj";
-    let path_json_imgs = "/home/p4/Work/Phygitalism/201127_Raskrasser/tests/test_0";
+    let path_obj = "/home/p4/Work/Phygitalism/201127_Raskrasser/tests/test_1/dumpIot/me.obj";
+    let path_json_imgs = "/home/p4/Work/Phygitalism/201127_Raskrasser/tests/test_1/dumpIot";
     let img_res: u32 = 1024;
 
     let mut faces: Vec<Tris3D> = load_meshes(path_obj);
     let cameras = load_cameras(path_json_imgs);
     let bvh = BVH::build(&mut faces);
     let mut texture = RgbaImage::new(img_res, img_res);
+
+    let mut ccount = 0;
     for cam in cameras {
         project_pixels(cam, &faces, &bvh, &mut texture);
+        ccount += 1;
+        println!("Finished Cam: {:?}", ccount);
     }
+    texture
+        .save(
+            Path::new(path_obj)
+                .parent()
+                .unwrap()
+                .join("mono_texture.png"),
+        )
+        .unwrap();
+    println!("Texture saved!");
 }
