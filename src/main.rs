@@ -3,7 +3,9 @@ use bvh::bounding_hierarchy::{BHShape, BoundingHierarchy};
 use bvh::bvh::BVH;
 use bvh::nalgebra::base::Unit;
 use bvh::nalgebra::distance;
-use bvh::nalgebra::geometry::{Isometry3, Perspective3, Quaternion, Translation3, UnitQuaternion};
+use bvh::nalgebra::geometry::{
+    Isometry3, Perspective3, Quaternion, Rotation3, Translation3, UnitQuaternion,
+};
 use bvh::nalgebra::{Point3, Vector3};
 use bvh::ray::Ray;
 use image::{DynamicImage, GenericImageView, Rgba, RgbaImage};
@@ -213,7 +215,10 @@ fn project_pixels(
     let [cam_x, cam_y, cam_z] = camera_raw.pos;
     let pos_tr = Translation3::new(cam_x, cam_y, cam_z);
     let pos_pt = Point3::new(cam_x, cam_y, cam_z);
-    let iso = Isometry3::from_parts(pos_tr, camera_raw.rot);
+    let rot = camera_raw.rot.to_rotation_matrix();
+    let cam_target = pos_tr.transform_point(&rot.transform_point(&Point3::new(0.0, 0.0, -1.0)));
+    println!("CAM TARGET: {:?}", cam_target);
+    let iso = Isometry3::look_at_rh(&pos_pt, &cam_target, &Vector3::y());
     let perspective = Perspective3::new(ratio, fovy, 1.0, 1000.0);
     //let projection = perspective.as_matrix() * iso.to_homogeneous();
 
@@ -226,11 +231,14 @@ fn project_pixels(
         for x in 0..width {
             if !checked_pixels[x][y] {
                 let ray_target = iso.transform_point(&perspective.unproject_point(&Point3::new(
-                    (x as f32 / width as f32) * 2.0 - 1.0,
-                    (y as f32 / height as f32) * 2.0 - 1.0,
-                    1.0,
+                    x as f32 / width as f32,
+                    y as f32 / height as f32,
+                    -1.0,
                 )));
-                //  println!("{:?}", ray_target);
+                let ray_test = iso.inverse_transform_point(&Point3::new(0.0, 0.0, 1.0));
+                //println!("X{:?}\nY{:?}", cam_target, ray_test);
+
+                //println!("{:?}", ray_test);
                 let ray = Ray::new(
                     pos_pt,
                     Vector3::new(ray_target[0], ray_target[1], ray_target[2]),
@@ -240,7 +248,7 @@ fn project_pixels(
                     checked_pixels[x][y] = true;
                     continue;
                 }
-
+                println!("Collisions: {:?}", collisions.len());
                 //let face = closest_face(bvh.traverse(&ray, &faces), pos_pt);
                 for face in collisions {
                     face_img_to_uv(
@@ -291,9 +299,9 @@ fn face_img_to_uv(
     let cam_width = img.dimensions().0 as f32;
     let cam_height = img.dimensions().1 as f32;
 
-    let a_cam = perspective.project_point(&iso.inverse_transform_point(&face.v_3d[0]));
-    let b_cam = perspective.project_point(&iso.inverse_transform_point(&face.v_3d[1]));
-    let c_cam = perspective.project_point(&iso.inverse_transform_point(&face.v_3d[2]));
+    let a_cam = perspective.project_point(&iso.transform_point(&face.v_3d[0]));
+    let b_cam = perspective.project_point(&iso.transform_point(&face.v_3d[1]));
+    let c_cam = perspective.project_point(&iso.transform_point(&face.v_3d[2]));
 
     let face_cam = Tris2D {
         a: a_cam,
