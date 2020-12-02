@@ -1,10 +1,12 @@
 use bvh::aabb::{Bounded, AABB};
 use bvh::bounding_hierarchy::{BHShape, BoundingHierarchy};
 use bvh::bvh::BVH;
-use bvh::nalgebra::geometry::{Perspective3, Quaternion};
+use bvh::nalgebra::base::Unit;
+use bvh::nalgebra::distance;
+use bvh::nalgebra::geometry::{Isometry3, Perspective3, Quaternion, Translation3, UnitQuaternion};
 use bvh::nalgebra::{Point3, Vector3};
 use bvh::ray::Ray;
-use image::{ImageBuffer, Rgba, RgbaImage};
+use image::{DynamicImage, GenericImageView, Rgba, RgbaImage};
 use obj;
 use serde_derive::Deserialize;
 use serde_json;
@@ -100,8 +102,8 @@ struct CameraJSON {
 }
 #[derive(Debug)]
 struct CameraRaw {
-    pos: Point3<f32>,
-    quat_rot: Quaternion<f32>,
+    pos: [f32; 3],
+    rot: UnitQuaternion<f32>,
     img_path: String,
 }
 
@@ -124,7 +126,8 @@ fn load_meshes(path_obj: &str) -> Vec<Tris3D> {
                 for vert in poly.0 {
                     let x = data.position[vert.0][0];
                     let y = data.position[vert.0][1];
-                    let z = data.position[vert.0][2];
+                    //KOCTbIJIb
+                    let z = -data.position[vert.0][2];
                     let u = data.texture[vert.1.unwrap()][0];
                     let v = data.texture[vert.1.unwrap()][1];
 
@@ -169,42 +172,123 @@ fn load_cameras(path_json_imgs: &str) -> Vec<CameraRaw> {
     let mut cameras = Vec::<CameraRaw>::new();
 
     for cam in cameras_json.data {
-        let pos = Point3::new(
+        let pos = [
             cam.cameraPosition[0],
             cam.cameraPosition[1],
             cam.cameraPosition[2],
-        );
+        ];
 
         //This quaternion as a 4D vector of coordinates in the [ x, y, z, w ] storage order.
-        let quat_rot = Quaternion::new(
-            cam.cameraRotation[0],
+        let rot = UnitQuaternion::from_quaternion(Quaternion::new(
+            //KOCTbIJIb
+            //cam.cameraRotation[0],
             cam.cameraRotation[1],
             cam.cameraRotation[2],
             cam.cameraRotation[3],
-        );
+            cam.cameraRotation[0],
+        ));
 
         let img_path = Path::new(path_json_imgs)
             .join(cam.imageName)
             .to_string_lossy()
             .into_owned();
 
-        cameras.push(CameraRaw {
-            pos,
-            quat_rot,
-            img_path,
-        });
+        cameras.push(CameraRaw { pos, rot, img_path });
     }
 
     cameras
 }
 
+fn project_pixels(
+    camera_raw: CameraRaw,
+    faces: &Vec<Tris3D>,
+    bvh: &BVH,
+    mut texture: &mut RgbaImage,
+) {
+    let img = image::open(camera_raw.img_path).unwrap();
+    let width = img.dimensions().0 as usize;
+    let height = img.dimensions().1 as usize;
+    let ratio = width as f32 / height as f32;
+    //let fovy =
+    let [cam_x, cam_y, cam_z] = camera_raw.pos;
+    let pos_tr = Translation3::new(cam_x, cam_y, cam_z);
+    let pos_pt = Point3::new(cam_x, cam_y, cam_z);
+    let iso = Isometry3::from_parts(pos_tr, camera_raw.rot);
+    let perspective = Perspective3::new(ratio, 3.14 / 2.0, 1.0, 1000.0);
+    //let projection = perspective.as_matrix() * iso.to_homogeneous();
+
+    let mut checked_pixels: Vec<Vec<bool>> = Vec::with_capacity(width);
+    for _ in 0..width {
+        checked_pixels.push(vec![false; height]);
+    }
+
+    for y in 0..height {
+        for x in 0..width {
+            if !checked_pixels[x][y] {
+                let ray_target = iso.inverse_transform_point(&perspective.unproject_point(
+                    &Point3::new(x as f32 / width as f32, y as f32 / height as f32, 1.0),
+                ));
+                //  println!("{:?}", ray_target);
+                let ray = Ray::new(
+                    pos_pt,
+                    Vector3::new(ray_target[0], ray_target[1], ray_target[2]),
+                );
+                let collisions = bvh.traverse(&ray, &faces);
+                if collisions.len() == 0 {
+                    checked_pixels[x][y] = true;
+                    continue;
+                }
+                let face = closest_face(bvh.traverse(&ray, &faces), pos_pt);
+                face_img_to_uv(
+                    &face,
+                    &iso,
+                    &perspective,
+                    &mut checked_pixels,
+                    &img,
+                    &mut texture,
+                );
+            }
+        }
+    }
+}
+
+fn closest_face(faces: Vec<&Tris3D>, pt: Point3<f32>) -> &Tris3D {
+    if faces.len() == 1 {
+        return faces[0];
+    }
+    let mut min_dist = f32::MAX;
+    let mut id = 0;
+    for (i, face) in faces.iter().enumerate() {
+        let dist = distance(&face.mid, &pt);
+        if dist < min_dist {
+            min_dist = dist;
+            id = i;
+        }
+    }
+    faces[id]
+}
+
+fn face_img_to_uv(
+    face: &Tris3D,
+    iso: &Isometry3<f32>,
+    perspective: &Perspective3<f32>,
+    mut checked_pixels: &mut Vec<Vec<bool>>,
+    img: &DynamicImage,
+    mut texture: &mut RgbaImage,
+) {
+}
+
 fn main() {
-    let path_obj = "/home/p4ymak/Work/Phygitalism/201127_Raskrasser/tests/suz_center.obj";
-    let path_json_imgs = "/home/p4ymak/Work/Phygitalism/201109_Projector/from_und3ve10p3d/test_0";
+    let path_obj =
+        "/home/p4/Work/Phygitalism/201127_Raskrasser/tests/test_0/Scan/TestScan42Scan.obj";
+    let path_json_imgs = "/home/p4/Work/Phygitalism/201127_Raskrasser/tests/test_0";
     let img_res: u32 = 1024;
 
     let mut faces: Vec<Tris3D> = load_meshes(path_obj);
     let cameras = load_cameras(path_json_imgs);
     let bvh = BVH::build(&mut faces);
     let mut texture = RgbaImage::new(img_res, img_res);
+    for cam in cameras {
+        project_pixels(cam, &faces, &bvh, &mut texture);
+    }
 }
