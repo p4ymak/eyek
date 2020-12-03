@@ -219,8 +219,9 @@ fn cast_pixels_rays(
 
     let rot = camera_raw.rot.to_rotation_matrix();
     let cam_target = pos_tr.transform_point(&rot.transform_point(&Point3::new(0.0, 0.0, 1.0)));
+    //let iso = Isometry3::look_at_lh(&pos_pt, &cam_target, &Vector3::y());
     let iso = Isometry3::face_towards(&pos_pt, &cam_target, &Vector3::y());
-    let perspective = Perspective3::new(ratio, fovy, 1.0, 1000.0);
+    let perspective = Perspective3::new(ratio, fovy, 0.01, 100.0);
 
     let mut checked_pixels: Vec<Vec<bool>> = Vec::with_capacity(width);
     for _ in 0..width {
@@ -229,6 +230,7 @@ fn cast_pixels_rays(
 
     let polycount = faces.len();
     let mut ray_casts = 0;
+
     for y in 0..height {
         for x in 0..width {
             if !checked_pixels[x][y] {
@@ -243,22 +245,24 @@ fn cast_pixels_rays(
                     pos_pt,
                     Vector3::new(ray_target[0], ray_target[1], ray_target[2]),
                 );
+
                 let collisions = bvh.traverse(&ray, &faces);
                 if collisions.len() == 0 {
                     checked_pixels[x][y] = true;
                     continue;
                 }
-                ray_casts += 1;
-                let face = closest_face(collisions, pos_pt);
 
-                face_img_to_uv(
-                    &face,
-                    &iso,
-                    &perspective,
-                    &mut checked_pixels,
-                    &img,
-                    &mut texture,
-                );
+                ray_casts += 1;
+                for face in closest_faces(collisions, pos_pt) {
+                    face_img_to_uv(
+                        &face,
+                        &iso,
+                        &perspective,
+                        &mut checked_pixels,
+                        &img,
+                        &mut texture,
+                    );
+                }
             }
         }
     }
@@ -266,20 +270,29 @@ fn cast_pixels_rays(
     println!("Collisions: {:?}/{:?}", ray_casts, polycount);
 }
 
-fn closest_face(faces: Vec<&Tris3D>, pt: Point3<f32>) -> &Tris3D {
+fn closest_faces(faces: Vec<&Tris3D>, pt: Point3<f32>) -> Vec<&Tris3D> {
     if faces.len() == 1 {
-        return faces[0];
+        return faces;
     }
-    let mut min_dist = f32::MAX;
-    let mut id = 0;
-    for (i, face) in faces.iter().enumerate() {
-        let dist = distance(&face.mid, &pt);
-        if dist < min_dist {
-            min_dist = dist;
-            id = i;
-        }
+    let mut closest = Vec::<(f32, &Tris3D)>::new();
+    for f in faces {
+        closest.push((distance(&f.mid, &pt), f));
     }
-    faces[id]
+    closest.sort_by(|a, b| a.0.partial_cmp(&b.0).unwrap());
+    let mut range = closest[0]
+        .1
+        .v_3d
+        .iter()
+        .map(|&p| distance(&p, &closest[0].1.mid))
+        .collect::<Vec<f32>>();
+    range.sort_by(|a, b| a.partial_cmp(&b).unwrap());
+    let epsilon = range.first().unwrap();
+
+    closest
+        .iter()
+        .filter(|f| f.0 - closest[0].0 <= *epsilon)
+        .map(|f| f.1)
+        .collect()
 }
 
 fn face_img_to_uv(
@@ -309,7 +322,7 @@ fn face_img_to_uv(
         b: b_cam,
         c: c_cam,
     };
-
+    // println!("{:?}", face_cam);
     for v in uv_min_y..uv_max_y {
         for u in uv_min_x..uv_max_x {
             let p_uv = Point3::new(u as f32 / uv_width as f32, v as f32 / uv_height as f32, 0.0);
@@ -318,23 +331,27 @@ fn face_img_to_uv(
                 let p_cam = face_cam.barycentric_to_cartesian(p_bary);
 
                 if face_cam.has_point(p_cam)
-                    && p_cam.x > -1.0
-                    && p_cam.y > -1.0
-                    && p_cam.x < 1.0
-                    && p_cam.y < 1.0
+                // && p_cam.x > -2.0
+                // && p_cam.y > -2.0
+                // && p_cam.x < 2.0
+                // && p_cam.y < 2.0
                 {
-                    let cam_x = (cam_width * (p_cam.x + 1.0) / 2.0).floor() as u32;
-                    let cam_y = (cam_height * (p_cam.y + 1.0) / 2.0).floor() as u32;
-                    // println!("\n\n{:?}\n{:?}\n{:?}", p_cam, cam_x, cam_y);
-                    // let cam_x = (((p_cam[0] + 1.0) * cam_width / 2.0).floor() - 1.0) as u32;
-                    // let cam_y = (((p_cam[1] + 1.0) * cam_height / 2.0).floor() - 1.0) as u32;
-                    //           println!("Cam X:{:?} Y:{:?}", cam_x, cam_y);
-                    //checked_pixels[cam_x as usize][cam_y as usize] = true;
-                    texture.put_pixel(
-                        u as u32,
-                        uv_height as u32 - v as u32,
-                        img.get_pixel(cam_x, (cam_height - 1.0) as u32 - cam_y),
-                    );
+                    // println!("{:?}", p_cam);
+                    let cam_x = (cam_width * (p_cam.x + 1.0) / 2.0) as u32;
+                    let cam_y = (cam_height * (p_cam.y + 1.0) / 2.0) as u32;
+                    // println!("x: {:?}\ny: {:?}\n", cam_x, cam_y);
+                    if cam_x < cam_width as u32
+                        && cam_x > 0
+                        && cam_y < cam_height as u32
+                        && cam_y > 0
+                    {
+                        checked_pixels[cam_x as usize][cam_y as usize] = true;
+                        texture.put_pixel(
+                            u as u32,
+                            uv_height as u32 - v as u32,
+                            img.get_pixel(cam_x, (cam_height - 1.0) as u32 - cam_y),
+                        );
+                    }
                 }
             }
         }
@@ -344,7 +361,7 @@ fn face_img_to_uv(
 fn main() {
     let path_obj = "/home/p4ymak/Work/Phygitalism/201127_Raskrasser/tests/test_1/dumpIot/me.obj";
     let path_json_imgs = "/home/p4ymak/Work/Phygitalism/201127_Raskrasser/tests/test_1/dumpIot";
-    let img_res: u32 = 1024;
+    let img_res: u32 = 1024 * 2;
 
     let mut faces: Vec<Tris3D> = load_meshes(path_obj);
     let cameras = load_cameras(path_json_imgs);
