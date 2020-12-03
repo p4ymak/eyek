@@ -126,9 +126,9 @@ fn load_meshes(path_obj: &str) -> Vec<Tris3D> {
                 let mut vs_uv = Vec::<Point3<f32>>::new();
 
                 for vert in poly.0 {
+                    //KOCTbIJIb
                     let x = data.position[vert.0][0];
                     let y = data.position[vert.0][1];
-                    //KOCTbIJIb
                     let z = data.position[vert.0][2];
                     let u = data.texture[vert.1.unwrap()][0];
                     let v = data.texture[vert.1.unwrap()][1];
@@ -201,7 +201,7 @@ fn load_cameras(path_json_imgs: &str) -> Vec<CameraRaw> {
     cameras
 }
 
-fn project_pixels(
+fn cast_pixels_rays(
     camera_raw: CameraRaw,
     faces: &Vec<Tris3D>,
     bvh: &BVH,
@@ -213,30 +213,32 @@ fn project_pixels(
     let ratio = width as f32 / height as f32;
     let fovy = 0.541 / ratio;
     let [cam_x, cam_y, cam_z] = camera_raw.pos;
+
     let pos_tr = Translation3::new(cam_x, cam_y, cam_z);
     let pos_pt = Point3::new(cam_x, cam_y, cam_z);
+
     let rot = camera_raw.rot.to_rotation_matrix();
-    let cam_target = pos_tr.transform_point(&rot.transform_point(&Point3::new(2.0, 3.0, -1.0)));
-    println!("CAM TARGET: {:?}", cam_target);
-    let iso = Isometry3::look_at_rh(&pos_pt, &cam_target, &Vector3::y());
+    let cam_target = pos_tr.transform_point(&rot.transform_point(&Point3::new(0.0, 0.0, 1.0)));
+    let iso = Isometry3::face_towards(&pos_pt, &cam_target, &Vector3::y());
     let perspective = Perspective3::new(ratio, fovy, 1.0, 1000.0);
-    //let projection = perspective.as_matrix() * iso.to_homogeneous();
 
     let mut checked_pixels: Vec<Vec<bool>> = Vec::with_capacity(width);
     for _ in 0..width {
         checked_pixels.push(vec![false; height]);
     }
 
+    let polycount = faces.len();
+    let mut ray_casts = 0;
     for y in 0..height {
         for x in 0..width {
             if !checked_pixels[x][y] {
-                let ray_target = iso.inverse_transform_point(&perspective.unproject_point(
-                    &Point3::new(x as f32 / width as f32, y as f32 / height as f32, -1.0),
-                ));
-                let ray_test = iso.inverse_transform_point(&Point3::new(2.0, 3.0, -1.0));
-                println!("X{:?}\nY{:?}", cam_target, ray_test);
+                let ray_target =
+                    iso.inverse_transform_point(&perspective.unproject_point(&Point3::new(
+                        (x as f32 / width as f32) * 2.0 - 1.0,
+                        (y as f32 / height as f32) * 2.0 - 1.0,
+                        1.0,
+                    )));
 
-                //println!("{:?}", ray_test);
                 let ray = Ray::new(
                     pos_pt,
                     Vector3::new(ray_target[0], ray_target[1], ray_target[2]),
@@ -246,21 +248,22 @@ fn project_pixels(
                     checked_pixels[x][y] = true;
                     continue;
                 }
-                println!("Collisions: {:?}", collisions.len());
-                //let face = closest_face(bvh.traverse(&ray, &faces), pos_pt);
-                for face in collisions {
-                    face_img_to_uv(
-                        &face,
-                        &iso,
-                        &perspective,
-                        &mut checked_pixels,
-                        &img,
-                        &mut texture,
-                    );
-                }
+                ray_casts += 1;
+                let face = closest_face(collisions, pos_pt);
+
+                face_img_to_uv(
+                    &face,
+                    &iso,
+                    &perspective,
+                    &mut checked_pixels,
+                    &img,
+                    &mut texture,
+                );
             }
         }
     }
+
+    println!("Collisions: {:?}/{:?}", ray_casts, polycount);
 }
 
 fn closest_face(faces: Vec<&Tris3D>, pt: Point3<f32>) -> &Tris3D {
@@ -313,18 +316,20 @@ fn face_img_to_uv(
             if face.v_uv.has_point(p_uv) {
                 let p_bary = face.v_uv.cartesian_to_barycentric(p_uv);
                 let p_cam = face_cam.barycentric_to_cartesian(p_bary);
-                //       println!("{:?}", p_cam);
+
                 if face_cam.has_point(p_cam)
-                    && p_cam[0] > -1.0
-                    && p_cam[1] > -1.0
-                    && p_cam[0] < 1.0
-                    && p_cam[1] < 1.0
+                    && p_cam.x > -1.0
+                    && p_cam.y > -1.0
+                    && p_cam.x < 1.0
+                    && p_cam.y < 1.0
                 {
-                    let cam_x = (((p_cam[0] + 1.0) * cam_width / 2.0).floor() - 1.0) as u32;
-                    let cam_y = (((p_cam[1] + 1.0) * cam_height / 2.0).floor() - 1.0) as u32;
+                    let cam_x = (cam_width * (p_cam.x + 1.0) / 2.0).floor() as u32;
+                    let cam_y = (cam_height * (p_cam.y + 1.0) / 2.0).floor() as u32;
+                    // println!("\n\n{:?}\n{:?}\n{:?}", p_cam, cam_x, cam_y);
+                    // let cam_x = (((p_cam[0] + 1.0) * cam_width / 2.0).floor() - 1.0) as u32;
+                    // let cam_y = (((p_cam[1] + 1.0) * cam_height / 2.0).floor() - 1.0) as u32;
                     //           println!("Cam X:{:?} Y:{:?}", cam_x, cam_y);
-                    checked_pixels[cam_x as usize][(cam_height - 1.0) as usize - cam_y as usize] =
-                        true;
+                    //checked_pixels[cam_x as usize][cam_y as usize] = true;
                     texture.put_pixel(
                         u as u32,
                         uv_height as u32 - v as u32,
@@ -337,8 +342,8 @@ fn face_img_to_uv(
 }
 
 fn main() {
-    let path_obj = "/home/p4/Work/Phygitalism/201127_Raskrasser/tests/test_1/dumpIot/me.obj";
-    let path_json_imgs = "/home/p4/Work/Phygitalism/201127_Raskrasser/tests/test_1/dumpIot";
+    let path_obj = "/home/p4ymak/Work/Phygitalism/201127_Raskrasser/tests/test_1/dumpIot/me.obj";
+    let path_json_imgs = "/home/p4ymak/Work/Phygitalism/201127_Raskrasser/tests/test_1/dumpIot";
     let img_res: u32 = 1024;
 
     let mut faces: Vec<Tris3D> = load_meshes(path_obj);
@@ -348,7 +353,7 @@ fn main() {
 
     let mut ccount = 0;
     for cam in cameras {
-        project_pixels(cam, &faces, &bvh, &mut texture);
+        cast_pixels_rays(cam, &faces, &bvh, &mut texture);
         ccount += 1;
         println!("Finished Cam: {:?}", ccount);
     }
