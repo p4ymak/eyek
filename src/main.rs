@@ -171,9 +171,9 @@ fn load_cameras(path_json_imgs: &str) -> Vec<CameraRaw> {
 
     for cam in cameras_json.data {
         let pos = [
-            1.0 * cam.cameraPosition[0],
-            1.0 * cam.cameraPosition[1],
-            1.0 * cam.cameraPosition[2],
+            cam.cameraPosition[0],
+            cam.cameraPosition[1],
+            cam.cameraPosition[2],
         ];
         //This quaternion as a 4D vector of coordinates in the [ x, y, z, w ] storage order.
         let rot = UnitQuaternion::from_quaternion(Quaternion::new(
