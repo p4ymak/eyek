@@ -123,7 +123,6 @@ fn load_meshes(path_obj: &str) -> Vec<Tris3D> {
                 let mut vs_uv = Vec::<Point3<f32>>::new();
 
                 for vert in poly.0 {
-                    //KOCTbIJIb
                     let x = data.position[vert.0][0];
                     let y = data.position[vert.0][1];
                     let z = data.position[vert.0][2];
@@ -179,7 +178,7 @@ fn load_cameras(path_json_imgs: &str) -> Vec<CameraRaw> {
         //This quaternion as a 4D vector of coordinates in the [ x, y, z, w ] storage order.
         let rot = UnitQuaternion::from_quaternion(Quaternion::new(
             //KOCTbIJIb
-            // cam.cameraRotation[0],
+            //cam.cameraRotation[0],
             cam.cameraRotation[1],
             cam.cameraRotation[2],
             cam.cameraRotation[3],
@@ -210,16 +209,13 @@ fn cast_pixels_rays(
     let fovy = 0.541 / ratio;
     let [cam_x, cam_y, cam_z] = camera_raw.pos;
 
-    let pos_tr = Translation3::new(5.0 + 0.0 * cam_x, 0.0 * cam_y, 5.0 + 0.0 * cam_z);
-    let rot_y = Rotation3::from_axis_angle(&Vector3::y_axis(), PI / 2.0);
-
-    let pos_pt = Point3::new(5.0 + 0.0 * cam_x, 0.0 * cam_y, 5.0 + 0.0 * cam_z);
-
+    let pos_tr = Translation3::new(cam_x, cam_y, cam_z);
+    let pos_pt = Point3::new(cam_x, cam_y, cam_z);
     let rot = camera_raw.rot.to_rotation_matrix();
-    // let cam_target = pos_tr.transform_point(&rot.transform_point(&Point3::new(0.0, 0.0, 1.0)));
-    let cam_target = &pos_tr.transform_point(&Point3::new(0.0, 0.0, 1.0));
+    let cam_target = pos_tr.transform_point(&rot.transform_point(&Point3::new(0.0, 0.0, 1.0)));
+    //let cam_target = &pos_tr.transform_point(&Point3::new(0.0, 0.0, 1.0));
     // let iso = Isometry3::look_at_lh(&pos_pt, &cam_target, &Vector3::y());
-    let iso = Isometry3::look_at_lh(&pos_pt, &cam_target, &Vector3::y());
+    let iso = Isometry3::face_towards(&pos_pt, &cam_target, &Vector3::y());
     let perspective = Perspective3::new(ratio, fovy, 0.01, 100.0);
 
     let mut checked_pixels: Vec<Vec<bool>> = Vec::with_capacity(width);
@@ -370,8 +366,7 @@ fn face_img_to_uv(
 }
 
 fn main() {
-    let path_obj =
-        "/home/p4ymak/Work/Phygitalism/201127_Raskrasser/tests/test_1/dumpIot/suz_xy5.obj";
+    let path_obj = "/home/p4ymak/Work/Phygitalism/201127_Raskrasser/tests/test_1/dumpIot/me.obj";
     let path_json_imgs = "/home/p4ymak/Work/Phygitalism/201127_Raskrasser/tests/test_1/dumpIot";
     let img_res: u32 = 1024 * 1;
 
