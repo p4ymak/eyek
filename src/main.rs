@@ -210,14 +210,14 @@ fn cast_pixels_rays(
     let fovy = 0.541 / ratio;
     let [cam_x, cam_y, cam_z] = camera_raw.pos;
 
-    let pos_tr = Translation3::new(0.0 * cam_x, 0.0 * cam_y, 0.0 * cam_z);
-    let rot_y = Rotation3::from_axis_angle(&Vector3::y_axis(), PI);
+    let pos_tr = Translation3::new(5.0 + 0.0 * cam_x, 0.0 * cam_y, 5.0 + 0.0 * cam_z);
+    let rot_y = Rotation3::from_axis_angle(&Vector3::y_axis(), PI / 2.0);
 
-    let pos_pt = Point3::new(0.0 * cam_x, 0.0 * cam_y, 0.0 * cam_z);
+    let pos_pt = Point3::new(5.0 + 0.0 * cam_x, 0.0 * cam_y, 5.0 + 0.0 * cam_z);
 
     let rot = camera_raw.rot.to_rotation_matrix();
     // let cam_target = pos_tr.transform_point(&rot.transform_point(&Point3::new(0.0, 0.0, 1.0)));
-    let cam_target = Point3::new(0.0, 0.0, 1.0);
+    let cam_target = &pos_tr.transform_point(&Point3::new(0.0, 0.0, 1.0));
     // let iso = Isometry3::look_at_lh(&pos_pt, &cam_target, &Vector3::y());
     let iso = Isometry3::look_at_lh(&pos_pt, &cam_target, &Vector3::y());
     let perspective = Perspective3::new(ratio, fovy, 0.01, 100.0);
@@ -235,11 +235,12 @@ fn cast_pixels_rays(
     for y in 0..height {
         for x in 0..width {
             if !checked_pixels[x][y] {
-                let ray_target = iso.transform_point(&perspective.unproject_point(&Point3::new(
-                    (x as f32 / width as f32) * 2.0 - 1.0,
-                    (y as f32 / height as f32) * 2.0 - 1.0,
-                    1.0,
-                )));
+                let ray_target =
+                    iso.inverse_transform_point(&perspective.unproject_point(&Point3::new(
+                        (x as f32 / width as f32) * 2.0 - 1.0,
+                        (y as f32 / height as f32) * 2.0 - 1.0,
+                        1.0,
+                    )));
 
                 let ray = Ray::new(
                     pos_pt,
@@ -319,13 +320,13 @@ fn face_img_to_uv(
 
     let a_cam = perspective
         // .as_projective()
-        .project_point(&iso.inverse_transform_point(&face.v_3d[0]));
+        .project_point(&iso.transform_point(&face.v_3d[0]));
     let b_cam = perspective
         // .as_projective()
-        .project_point(&iso.inverse_transform_point(&face.v_3d[1]));
+        .project_point(&iso.transform_point(&face.v_3d[1]));
     let c_cam = perspective
         // .as_projective()
-        .project_point(&iso.inverse_transform_point(&face.v_3d[2]));
+        .project_point(&iso.transform_point(&face.v_3d[2]));
 
     let face_cam = Tris2D {
         a: a_cam, //perspective.to_homogeneous().transform_point(&a_cam),
@@ -341,10 +342,10 @@ fn face_img_to_uv(
                 let p_cam = face_cam.barycentric_to_cartesian(p_bary);
 
                 if face_cam.has_point(p_cam)
-                // && p_cam.x > -2.0
-                // && p_cam.y > -2.0
-                // && p_cam.x < 2.0
-                // && p_cam.y < 2.0
+                    && p_cam.x > -1.0
+                    && p_cam.y > -1.0
+                    && p_cam.x < 1.0
+                    && p_cam.y < 1.0
                 {
                     // println!("{:?}", p_cam);
                     let cam_x = (cam_width * (p_cam.x + 1.0) / 2.0) as u32;
@@ -370,7 +371,7 @@ fn face_img_to_uv(
 
 fn main() {
     let path_obj =
-        "/home/p4ymak/Work/Phygitalism/201127_Raskrasser/tests/test_1/dumpIot/suz_me.obj";
+        "/home/p4ymak/Work/Phygitalism/201127_Raskrasser/tests/test_1/dumpIot/suz_xy5.obj";
     let path_json_imgs = "/home/p4ymak/Work/Phygitalism/201127_Raskrasser/tests/test_1/dumpIot";
     let img_res: u32 = 1024 * 1;
 
