@@ -173,16 +173,16 @@ fn load_cameras(path_json_imgs: &str) -> Vec<CameraRaw> {
     for cam in cameras_json.data {
         let pos = [
             cam.cameraPosition[0],
-            cam.cameraPosition[1],
-            cam.cameraPosition[2],
+            -cam.cameraPosition[1],
+            -cam.cameraPosition[2],
         ];
         //This quaternion as a 4D vector of coordinates in the [ x, y, z, w ] storage order.
         let rot = UnitQuaternion::from_quaternion(Quaternion::new(
             //KOCTbIJIb
             //cam.cameraRotation[0],
-            cam.cameraRotation[1],
-            cam.cameraRotation[2],
             cam.cameraRotation[3],
+            -cam.cameraRotation[2],
+            -cam.cameraRotation[1],
             cam.cameraRotation[0],
         ));
 
@@ -207,18 +207,23 @@ fn cast_pixels_rays(
     let width = img.dimensions().0 as usize;
     let height = img.dimensions().1 as usize;
     let ratio = width as f32 / height as f32;
-    let fovy = 1.04; //0.541 / ratio;
-                     //let [cam_x, cam_y, cam_z] = camera_raw.pos;
-    let [cam_x, cam_y, cam_z] = [-2.21, 4.12, -4.59];
-    let rot = UnitQuaternion::from_euler_angles(42.927, -21.504, 14.852);
-    let pos_tr = Translation3::new(cam_x, cam_y, cam_z);
-    let pos_pt = Point3::new(cam_x, cam_y, cam_z);
-    let iso_targ = Isometry3::from_parts(pos_tr, rot);
-    let cam_target = iso_targ.transform_point(&Point3::new(-1.0, 0.0, 0.0));
-    //let cam_target = pos_tr.transform_point(&rot.transform_point(&Point3::new(0.0, 0.0, -1.0)));
+    let fovy = 0.6 / ratio;
+    let [cam_x, cam_y, cam_z] = camera_raw.pos;
+    let rot = camera_raw.rot;
+    let cam_tr = Translation3::new(cam_x, cam_y, cam_z);
+    let cam_pos = Point3::new(cam_x, cam_y, cam_z);
+    let rot_pi = Isometry3::rotation_wrt_point(
+        UnitQuaternion::from_axis_angle(
+            &Unit::new_normalize(Vector3::new(0.0, 1.0, 0.0)),
+            PI / 2.0,
+        ),
+        cam_pos,
+    );
+    let iso_targ = Isometry3::from_parts(cam_tr, rot);
+    let cam_target = iso_targ.transform_point(&Point3::new(0.0, 0.0, 1.0));
 
-    let iso = Isometry3::face_towards(&pos_pt, &cam_target, &Vector3::y());
-    //let iso = Isometry3::look_at_rh(&pos_pt, &cam_target, &Vector3::y());
+    let iso = Isometry3::face_towards(&cam_pos, &cam_target, &Vector3::y());
+    //let iso = Isometry3::look_at_lh(&cam_pos, &cam_target, &Vector3::y());
     let perspective = Perspective3::new(ratio, fovy, 0.01, 1000.0);
     let mut checked_pixels: Vec<Vec<bool>> = Vec::with_capacity(width);
     for _ in 0..width {
@@ -229,6 +234,9 @@ fn cast_pixels_rays(
     let polycount = faces.len();
     let mut ray_casts = 0;
     let mut test_img = RgbaImage::new(width as u32, height as u32);
+    let ray_target_test =
+        iso.transform_point(&perspective.unproject_point(&Point3::new(0.0, 0.0, 1.0)));
+    println!("CAM_POS:\n{:?}\nCAM_TAR:{:?}", &cam_pos, ray_target_test);
 
     for y in 0..height {
         for x in 0..width {
@@ -247,7 +255,7 @@ fn cast_pixels_rays(
                     )));
                 //println!("{:?}\n{:?}\n{:?}\n", pos_pt, ray_origin, ray_target_pt);
                 let ray = Ray::new(
-                    pos_pt,
+                    cam_pos,
                     Vector3::new(
                         ray_target_pt.x, // - ray_origin.x,
                         ray_target_pt.y, // - ray_origin.y,
@@ -263,7 +271,7 @@ fn cast_pixels_rays(
 
                 test_img.put_pixel(x as u32, height as u32 - y as u32 - 1, Rgba([0, 0, 0, 255]));
                 ray_casts += 1;
-                for face in closest_faces(collisions, pos_pt) {
+                for face in closest_faces(collisions, cam_pos) {
                     face_img_to_uv(
                         &face,
                         &iso,
