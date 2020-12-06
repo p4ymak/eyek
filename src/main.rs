@@ -173,16 +173,16 @@ fn load_cameras(path_json_imgs: &str) -> Vec<CameraRaw> {
     for cam in cameras_json.data {
         let pos = [
             cam.cameraPosition[0],
-            -cam.cameraPosition[1],
+            cam.cameraPosition[1],
             -cam.cameraPosition[2],
         ];
         //This quaternion as a 4D vector of coordinates in the [ x, y, z, w ] storage order.
         let rot = UnitQuaternion::from_quaternion(Quaternion::new(
             //KOCTbIJIb
             //cam.cameraRotation[0],
-            cam.cameraRotation[3],
+            -cam.cameraRotation[3],
             -cam.cameraRotation[2],
-            -cam.cameraRotation[1],
+            cam.cameraRotation[1],
             cam.cameraRotation[0],
         ));
 
@@ -207,7 +207,7 @@ fn cast_pixels_rays(
     let width = img.dimensions().0 as usize;
     let height = img.dimensions().1 as usize;
     let ratio = width as f32 / height as f32;
-    let fovy = 0.6 / ratio;
+    let fovy = 0.8; // 0.541*ratio;
     let [cam_x, cam_y, cam_z] = camera_raw.pos;
     let rot = camera_raw.rot;
     let cam_tr = Translation3::new(cam_x, cam_y, cam_z);
@@ -255,7 +255,7 @@ fn cast_pixels_rays(
                     )));
                 //println!("{:?}\n{:?}\n{:?}\n", pos_pt, ray_origin, ray_target_pt);
                 let ray = Ray::new(
-                    cam_pos,
+                    ray_origin,
                     Vector3::new(
                         ray_target_pt.x, // - ray_origin.x,
                         ray_target_pt.y, // - ray_origin.y,
@@ -333,20 +333,14 @@ fn face_img_to_uv(
     let cam_width = img.dimensions().0 as f32;
     let cam_height = img.dimensions().1 as f32;
 
-    let a_cam = perspective
-        // .as_projective()
-        .project_point(&iso.inverse_transform_point(&face.v_3d[0]));
-    let b_cam = perspective
-        // .as_projective()
-        .project_point(&iso.inverse_transform_point(&face.v_3d[1]));
-    let c_cam = perspective
-        // .as_projective()
-        .project_point(&iso.inverse_transform_point(&face.v_3d[2]));
+    let a_cam = perspective.project_point(&iso.inverse_transform_point(&face.v_3d[0]));
+    let b_cam = perspective.project_point(&iso.inverse_transform_point(&face.v_3d[1]));
+    let c_cam = perspective.project_point(&iso.inverse_transform_point(&face.v_3d[2]));
 
     let face_cam = Tris2D {
-        a: a_cam, //perspective.to_homogeneous().transform_point(&a_cam),
-        b: b_cam, //perspective.to_homogeneous().transform_point(&b_cam),
-        c: c_cam, //perspective.to_homogeneous().transform_point(&c_cam),
+        a: a_cam,
+        b: b_cam,
+        c: c_cam,
     };
     // println!("{:?}", face_cam);
     for v in uv_min_y..uv_max_y {
