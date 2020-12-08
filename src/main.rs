@@ -205,7 +205,7 @@ fn cast_pixels_rays(
     let height = img.dimensions().1 as usize;
     let ratio = width as f32 / height as f32;
     //let fovx = 0.541 as f32;
-    let fovy = 0.725; //((fovx).atan() * ratio).tan();
+    let fovy = 0.72; //((fovx).atan() * ratio).tan();
     let [cam_x, cam_y, cam_z] = camera_raw.pos;
     let rot = camera_raw.rot;
     let cam_tr = Translation3::new(cam_x, cam_y, cam_z);
@@ -213,7 +213,7 @@ fn cast_pixels_rays(
     let iso_targ = Isometry3::from_parts(cam_tr, rot);
     let cam_target = iso_targ.transform_point(&Point3::new(0.0, 0.0, 1.0));
     let iso = Isometry3::face_towards(&cam_pos, &cam_target, &Vector3::y());
-    let perspective = Perspective3::new(ratio, fovy, 0.01, 10.0);
+    let perspective = Perspective3::new(ratio, fovy, 0.1, 100.0);
     let mut checked_pixels: Vec<Vec<bool>> = Vec::with_capacity(width);
     for _ in 0..width {
         checked_pixels.push(vec![false; height]);
@@ -444,22 +444,51 @@ fn main() {
     //let path_obj = "/home/p4/Work/Phygitalism/201127_Raskrasser/tests/test_1/dumpIot/me.obj";
     //let path_json_imgs = "/home/p4/Work/Phygitalism/201127_Raskrasser/tests/test_1/dumpIot";
     let path_obj =
-        "/home/p4/Work/Phygitalism/201127_Raskrasser/tests/test_0/Scan/TestScan42Scan1.obj";
-    let path_json_imgs = "/home/p4/Work/Phygitalism/201127_Raskrasser/tests/test_0";
-    let img_res: u32 = 1024;
+        "/home/p4/Work/Phygitalism/201106_Projector/tests/from_undeveloped/yana_space/Scan/ScanwithyanaScan.obj";
+    let path_json_imgs =
+        "/home/p4/Work/Phygitalism/201106_Projector/tests/from_undeveloped/yana_space";
+    let img_res: u32 = 1024 / 2;
 
     let mut faces: Vec<Tris3D> = load_meshes(path_obj);
     let cameras = load_cameras(path_json_imgs);
     let bvh = BVH::build(&mut faces);
-    let mut texture = RgbaImage::new(img_res, img_res);
 
     let mut ccount = 0;
+
+    let mut textures = Vec::<RgbaImage>::new();
     for cam in cameras {
+        let mut texture = RgbaImage::new(img_res, img_res);
         cast_pixels_rays(cam, &faces, &bvh, &mut texture);
         ccount += 1;
         println!("Finished Cam: {:?}", ccount);
+        textures.push(texture);
     }
 
+    let mut texture = RgbaImage::new(img_res, img_res);
+    for y in 0..img_res {
+        for x in 0..img_res {
+            let mut n = 0;
+            let mut r: usize = 0;
+            let mut g: usize = 0;
+            let mut b: usize = 0;
+
+            for part in &textures {
+                let col = part.get_pixel(x, y);
+                if col[3] != 0 {
+                    n += 1;
+                    r += col[0] as usize;
+                    g += col[1] as usize;
+                    b += col[2] as usize;
+                }
+            }
+            if n > 0 {
+                r /= n;
+                g /= n;
+                b /= n;
+                texture.put_pixel(x, y, Rgba([r as u8, g as u8, b as u8, 255]))
+            }
+        }
+    }
     fill_empty_pixels(&mut texture);
     println!("Filled empty pixels");
 
