@@ -99,6 +99,7 @@ struct CameraJSON {
 }
 #[derive(Debug)]
 struct CameraRaw {
+    id: usize,
     pos: [f32; 3],
     rot: UnitQuaternion<f32>,
     img_path: String,
@@ -166,8 +167,9 @@ fn load_cameras(path_json_imgs: &str) -> Vec<CameraRaw> {
     let file_json = fs::File::open(Path::new(path_json_imgs).join("imageData.json")).unwrap();
     let cameras_json: VecCameraJSON = serde_json::from_reader(file_json).unwrap();
     let mut cameras = Vec::<CameraRaw>::new();
-
+    let mut id = 0;
     for cam in cameras_json.data {
+        id += 1;
         let pos = [
             cam.cameraPosition[0],
             cam.cameraPosition[1],
@@ -188,7 +190,12 @@ fn load_cameras(path_json_imgs: &str) -> Vec<CameraRaw> {
             .to_string_lossy()
             .into_owned();
 
-        cameras.push(CameraRaw { pos, rot, img_path });
+        cameras.push(CameraRaw {
+            id,
+            pos,
+            rot,
+            img_path,
+        });
     }
 
     cameras
@@ -368,18 +375,19 @@ fn face_img_to_uv(
                     let cam_x = (cam_width * (p_cam.x + 1.0) / 2.0) as u32;
                     let cam_y = (cam_height * (p_cam.y + 1.0) / 2.0) as u32;
                     // println!("x: {:?}\ny: {:?}\n", cam_x, cam_y);
-                    // if cam_x < cam_width as u32
-                    //   && cam_x > 0
-                    // && cam_y < cam_height as u32
-                    // && cam_y > 0
-                    //{
-                    let source_color = img.get_pixel(cam_x, (cam_height - 1.0) as u32 - cam_y);
-                    let current_color = texture.get_pixel(u as u32, uv_height as u32 - v as u32);
-                    let target_color = mix_colors(source_color, current_color);
+                    if cam_x < cam_width as u32
+                        && cam_x > 0
+                        && cam_y < cam_height as u32
+                        && cam_y > 0
+                    {
+                        let source_color = img.get_pixel(cam_x, (cam_height - 1.0) as u32 - cam_y);
+                        let current_color =
+                            texture.get_pixel(u as u32, uv_height as u32 - v as u32);
+                        let target_color = mix_colors(source_color, current_color);
 
-                    texture.put_pixel(u as u32, uv_height as u32 - v as u32, target_color);
-                    checked_pixels[cam_x as usize][cam_y as usize] = true;
-                    //}
+                        texture.put_pixel(u as u32, uv_height as u32 - v as u32, target_color);
+                        checked_pixels[cam_x as usize][cam_y as usize] = true;
+                    }
                 }
             }
         }
@@ -444,25 +452,28 @@ fn main() {
     //let path_obj = "/home/p4/Work/Phygitalism/201127_Raskrasser/tests/test_1/dumpIot/me.obj";
     //let path_json_imgs = "/home/p4/Work/Phygitalism/201127_Raskrasser/tests/test_1/dumpIot";
     let path_obj =
-        "/home/p4/Work/Phygitalism/201106_Projector/tests/from_undeveloped/yana_space/Scan/ScanwithyanaScan.obj";
-    let path_json_imgs =
-        "/home/p4/Work/Phygitalism/201106_Projector/tests/from_undeveloped/yana_space";
-    let img_res: u32 = 1024 / 2;
+        "/home/p4/Work/Phygitalism/201127_Raskrasser/tests/test_0/Scan/TestScan42Scan.obj";
+    let path_json_imgs = "/home/p4/Work/Phygitalism/201127_Raskrasser/tests/test_0";
+    let img_res: u32 = 1024 * 2;
 
     let mut faces: Vec<Tris3D> = load_meshes(path_obj);
     let cameras = load_cameras(path_json_imgs);
     let bvh = BVH::build(&mut faces);
 
-    let mut ccount = 0;
+    //let mut ccount = 0;
 
-    let mut textures = Vec::<RgbaImage>::new();
-    for cam in cameras {
-        let mut texture = RgbaImage::new(img_res, img_res);
-        cast_pixels_rays(cam, &faces, &bvh, &mut texture);
-        ccount += 1;
-        println!("Finished Cam: {:?}", ccount);
-        textures.push(texture);
-    }
+    let textures: Vec<RgbaImage> = cameras
+        .into_par_iter()
+        .map(|cam| {
+            let mut texture = RgbaImage::new(img_res, img_res);
+            let id = cam.id;
+            cast_pixels_rays(cam, &faces, &bvh, &mut texture);
+            //ccount += 1;
+            println!("Finished cam: {:?}", id);
+            //println!("Finished Cam: {:?}", ccount);
+            texture
+        })
+        .collect();
 
     let mut texture = RgbaImage::new(img_res, img_res);
     for y in 0..img_res {
@@ -489,6 +500,7 @@ fn main() {
             }
         }
     }
+
     fill_empty_pixels(&mut texture);
     println!("Filled empty pixels");
 
