@@ -2,10 +2,7 @@ use bvh::aabb::{Bounded, AABB};
 use bvh::bounding_hierarchy::BHShape;
 use bvh::bvh::BVH;
 use bvh::nalgebra::distance;
-use bvh::nalgebra::geometry::{
-    Isometry3, Perspective3, Quaternion, Rotation3, Translation3, UnitQuaternion,
-};
-use bvh::nalgebra::Unit;
+use bvh::nalgebra::geometry::{Isometry3, Perspective3, Quaternion, Translation3, UnitQuaternion};
 use bvh::nalgebra::{Point3, Vector3};
 use bvh::ray::Ray;
 use image::{DynamicImage, GenericImageView, Rgba, RgbaImage};
@@ -13,9 +10,9 @@ use obj;
 use rayon::prelude::*;
 use serde_derive::Deserialize;
 use serde_json;
-use std::f32::consts::PI;
 use std::fs;
 use std::path::Path;
+
 #[derive(Debug, Clone)]
 struct Tris2D {
     a: Point3<f32>,
@@ -55,7 +52,7 @@ impl Tris2D {
     fn barycentric_to_cartesian(&self, pt: Point3<f32>) -> Point3<f32> {
         let x = pt.x * self.a.x + pt.y * self.b.x + pt.z * self.c.x;
         let y = pt.x * self.a.y + pt.y * self.b.y + pt.z * self.c.y;
-        let z = 0.0; //pt.x * self.a.z + pt.y * self.b.z + pt.z * self.c.z;
+        let z = pt.x * self.a.z + pt.y * self.b.z + pt.z * self.c.z;
         Point3::new(x, y, z)
     }
 }
@@ -208,7 +205,7 @@ fn cast_pixels_rays(
     let height = img.dimensions().1 as usize;
     let ratio = width as f32 / height as f32;
     let fovx = 0.541 as f32;
-    let fovy = 0.78; //((fovx).atan() * ratio).tan();
+    let fovy = 0.725; //((fovx).atan() * ratio).tan();
     let [cam_x, cam_y, cam_z] = camera_raw.pos;
     let rot = camera_raw.rot;
     let cam_tr = Translation3::new(cam_x, cam_y, cam_z);
@@ -225,7 +222,7 @@ fn cast_pixels_rays(
     //DEBUG
     //let polycount = faces.len();
     //let mut ray_casts = 0;
-    //let mut test_img = RgbaImage::new(width as u32, height as u32);
+    let mut test_img = RgbaImage::new(width as u32, height as u32);
     //let ray_target_test =
     //    iso.transform_point(&perspective.unproject_point(&Point3::new(0.0, 0.0, 1.0)));
     //println!("CAM_POS:\n{:?}\nCAM_TAR:{:?}", &cam_pos, ray_target_test);
@@ -261,7 +258,7 @@ fn cast_pixels_rays(
                     continue;
                 }
 
-                //test_img.put_pixel(x as u32, height as u32 - y as u32 - 1, Rgba([0, 0, 0, 255]));
+                test_img.put_pixel(x as u32, height as u32 - y as u32 - 1, Rgba([0, 0, 0, 255]));
                 //ray_casts += 1;
                 for face in closest_faces(collisions, cam_pos) {
                     face_img_to_uv(
@@ -277,8 +274,8 @@ fn cast_pixels_rays(
         }
     }
     //test_img
-    //  .save("/home/p4/Work/Phygitalism/201127_Raskrasser/tests/test_1/dumpIot/test.png")
-    //.unwrap();
+    //    .save("/home/p4/Work/Phygitalism/201127_Raskrasser/tests/test_1/dumpIot/test.png")
+    //    .unwrap();
     //println!("Collisions: {:?}/{:?}", ray_casts, polycount);
 }
 
@@ -455,10 +452,12 @@ fn fill_empty_pixels(texture: &mut RgbaImage) {
 }
 
 fn main() {
+    //let path_obj = "/home/p4/Work/Phygitalism/201127_Raskrasser/tests/test_1/dumpIot/me.obj";
+    //let path_json_imgs = "/home/p4/Work/Phygitalism/201127_Raskrasser/tests/test_1/dumpIot";
     let path_obj =
         "/home/p4/Work/Phygitalism/201127_Raskrasser/tests/test_0/Scan/TestScan42Scan.obj";
     let path_json_imgs = "/home/p4/Work/Phygitalism/201127_Raskrasser/tests/test_0";
-    let img_res: u32 = 1024 * 2;
+    let img_res: u32 = 1024;
 
     let mut faces: Vec<Tris3D> = load_meshes(path_obj);
     let cameras = load_cameras(path_json_imgs);
