@@ -10,12 +10,12 @@ use bvh::nalgebra::{Point3, Vector3};
 use bvh::ray::Ray;
 use image::{DynamicImage, GenericImageView, Rgba, RgbaImage};
 use obj;
+use rayon::prelude::*;
 use serde_derive::Deserialize;
 use serde_json;
 use std::f32::consts::PI;
 use std::fs;
 use std::path::Path;
-
 #[derive(Debug, Clone)]
 struct Tris2D {
     a: Point3<f32>,
@@ -207,23 +207,15 @@ fn cast_pixels_rays(
     let width = img.dimensions().0 as usize;
     let height = img.dimensions().1 as usize;
     let ratio = width as f32 / height as f32;
-    let fovy = 0.8; // 0.541*ratio;
+    let fovx = 0.541 as f32;
+    let fovy = 0.78; //((fovx).atan() * ratio).tan();
     let [cam_x, cam_y, cam_z] = camera_raw.pos;
     let rot = camera_raw.rot;
     let cam_tr = Translation3::new(cam_x, cam_y, cam_z);
     let cam_pos = Point3::new(cam_x, cam_y, cam_z);
-    let rot_pi = Isometry3::rotation_wrt_point(
-        UnitQuaternion::from_axis_angle(
-            &Unit::new_normalize(Vector3::new(0.0, 1.0, 0.0)),
-            PI / 2.0,
-        ),
-        cam_pos,
-    );
     let iso_targ = Isometry3::from_parts(cam_tr, rot);
     let cam_target = iso_targ.transform_point(&Point3::new(0.0, 0.0, 1.0));
-
     let iso = Isometry3::face_towards(&cam_pos, &cam_target, &Vector3::y());
-    //let iso = Isometry3::look_at_lh(&cam_pos, &cam_target, &Vector3::y());
     let perspective = Perspective3::new(ratio, fovy, 0.01, 1000.0);
     let mut checked_pixels: Vec<Vec<bool>> = Vec::with_capacity(width);
     for _ in 0..width {
@@ -231,12 +223,12 @@ fn cast_pixels_rays(
     }
 
     //DEBUG
-    let polycount = faces.len();
-    let mut ray_casts = 0;
-    let mut test_img = RgbaImage::new(width as u32, height as u32);
-    let ray_target_test =
-        iso.transform_point(&perspective.unproject_point(&Point3::new(0.0, 0.0, 1.0)));
-    println!("CAM_POS:\n{:?}\nCAM_TAR:{:?}", &cam_pos, ray_target_test);
+    //let polycount = faces.len();
+    //let mut ray_casts = 0;
+    //let mut test_img = RgbaImage::new(width as u32, height as u32);
+    //let ray_target_test =
+    //    iso.transform_point(&perspective.unproject_point(&Point3::new(0.0, 0.0, 1.0)));
+    //println!("CAM_POS:\n{:?}\nCAM_TAR:{:?}", &cam_pos, ray_target_test);
 
     for y in 0..height {
         for x in 0..width {
@@ -269,8 +261,8 @@ fn cast_pixels_rays(
                     continue;
                 }
 
-                test_img.put_pixel(x as u32, height as u32 - y as u32 - 1, Rgba([0, 0, 0, 255]));
-                ray_casts += 1;
+                //test_img.put_pixel(x as u32, height as u32 - y as u32 - 1, Rgba([0, 0, 0, 255]));
+                //ray_casts += 1;
                 for face in closest_faces(collisions, cam_pos) {
                     face_img_to_uv(
                         &face,
@@ -284,13 +276,13 @@ fn cast_pixels_rays(
             }
         }
     }
-    test_img
-        .save("/home/p4/Work/Phygitalism/201127_Raskrasser/tests/test_1/dumpIot/test.png")
-        .unwrap();
-    println!("Collisions: {:?}/{:?}", ray_casts, polycount);
+    //test_img
+    //  .save("/home/p4/Work/Phygitalism/201127_Raskrasser/tests/test_1/dumpIot/test.png")
+    //.unwrap();
+    //println!("Collisions: {:?}/{:?}", ray_casts, polycount);
 }
 
-fn closest_faces(faces: Vec<&Tris3D>, pt: Point3<f32>) -> Vec<&Tris3D> {
+fn _closest_faces(faces: Vec<&Tris3D>, pt: Point3<f32>) -> Vec<&Tris3D> {
     if faces.len() == 1 {
         return faces;
     }
@@ -313,6 +305,32 @@ fn closest_faces(faces: Vec<&Tris3D>, pt: Point3<f32>) -> Vec<&Tris3D> {
         .filter(|f| f.0 - closest[0].0 <= *epsilon)
         .map(|f| f.1)
         .collect()
+}
+
+fn closest_faces(faces: Vec<&Tris3D>, pt: Point3<f32>) -> Vec<&Tris3D> {
+    if faces.len() == 1 {
+        return faces;
+    }
+    return vec![faces[0], faces[1]];
+}
+
+fn mix_colors(source: Rgba<u8>, mut target: Rgba<u8>) -> Rgba<u8> {
+    let sr = source[0];
+    let sg = source[1];
+    let sb = source[2];
+    let tr = target[0];
+    let tg = target[1];
+    let tb = target[2];
+    //if [sr, sg, sb].iter().sum::<u8>() == 0 {
+    //  return target;
+    //}
+    if target[3] == 0 {
+        target = source;
+    } else {
+        target = Rgba([sr / 2 + tr / 2, sg / 2 + tg / 2, sb / 2 + tb / 2, 255]);
+    }
+
+    target
 }
 
 fn face_img_to_uv(
@@ -366,11 +384,14 @@ fn face_img_to_uv(
                         && cam_y > 0
                     {
                         checked_pixels[cam_x as usize][cam_y as usize] = true;
-                        texture.put_pixel(
-                            u as u32,
-                            uv_height as u32 - v as u32,
-                            img.get_pixel(cam_x, (cam_height - 1.0) as u32 - cam_y),
+                        let source_color = img.get_pixel(cam_x, (cam_height - 1.0) as u32 - cam_y);
+
+                        let target_color = mix_colors(
+                            source_color,
+                            *texture.get_pixel(u as u32, uv_height as u32 - v as u32),
                         );
+
+                        texture.put_pixel(u as u32, uv_height as u32 - v as u32, target_color);
                     }
                 }
             }
@@ -378,10 +399,66 @@ fn face_img_to_uv(
     }
 }
 
+fn blend_pixels(texture: &RgbaImage, x: u32, y: u32) -> Rgba<u8> {
+    let ways = [
+        [0, 1],
+        [1, 1],
+        [1, 0],
+        [1, -1],
+        [0, -1],
+        [-1, 1],
+        [-1, 0],
+        [-1, -1],
+    ];
+    let bx = texture.dimensions().0 as i32;
+    let by = texture.dimensions().1 as i32;
+    let mut neibs_count = 0;
+    let mut r = 0 as u32;
+    let mut g = 0 as u32;
+    let mut b = 0 as u32;
+
+    for way in ways.iter() {
+        let col = texture.get_pixel(
+            ((x as i32 + way[0] % bx) as u32).min(bx as u32 - 1),
+            ((y as i32 + way[1] % by) as u32).min(by as u32 - 1),
+        );
+        if col[3] != 0 {
+            neibs_count += 1;
+            r += col[0] as u32;
+            g += col[1] as u32;
+            b += col[2] as u32;
+        }
+    }
+    if neibs_count != 0 {
+        r /= neibs_count;
+        g /= neibs_count;
+        b /= neibs_count;
+    }
+    Rgba([r as u8, g as u8, b as u8, 255])
+}
+
+fn fill_empty_pixels(texture: &mut RgbaImage) {
+    let (width, height) = texture.dimensions();
+
+    for v in 0..(height as usize) {
+        for u in 0..(width as usize) {
+            let current_color = *texture.get_pixel(u as u32, v as u32);
+            if current_color[3] == 0 {
+                let blended_color = blend_pixels(&texture, u as u32, v as u32);
+                if blended_color[3] != 0 {
+                    texture.put_pixel(u as u32, v as u32, blended_color)
+                }
+            }
+        }
+    }
+    //texture
+}
+
 fn main() {
-    let path_obj = "/home/p4/Work/Phygitalism/201127_Raskrasser/tests/test_1/dumpIot/me.obj";
-    let path_json_imgs = "/home/p4/Work/Phygitalism/201127_Raskrasser/tests/test_1/dumpIot";
-    let img_res: u32 = 1024 * 1;
+    let path_obj =
+        "/home/p4/Work/Phygitalism/201127_Raskrasser/tests/test_0/Scan/TestScan42Scan.obj";
+    let path_json_imgs = "/home/p4/Work/Phygitalism/201127_Raskrasser/tests/test_0";
+    let img_res: u32 = 1024 * 2;
 
     let mut faces: Vec<Tris3D> = load_meshes(path_obj);
     let cameras = load_cameras(path_json_imgs);
@@ -394,6 +471,10 @@ fn main() {
         ccount += 1;
         println!("Finished Cam: {:?}", ccount);
     }
+
+    fill_empty_pixels(&mut texture);
+    println!("Filled empty pixels");
+
     texture
         .save(
             Path::new(path_obj)
