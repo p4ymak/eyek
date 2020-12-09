@@ -5,6 +5,7 @@ use bvh::nalgebra::distance;
 use bvh::nalgebra::geometry::{Isometry3, Perspective3, Quaternion, Translation3, UnitQuaternion};
 use bvh::nalgebra::{Point3, Vector3};
 use bvh::ray::Ray;
+use gelf::{Level, Logger, Message, UdpBackend};
 use image::{DynamicImage, GenericImageView, Rgba, RgbaImage};
 use obj;
 use rayon::prelude::*;
@@ -13,6 +14,7 @@ use serde_json;
 use std::env;
 use std::fs;
 use std::path::Path;
+
 #[derive(Debug, Clone)]
 struct Tris2D {
     a: Point3<f32>,
@@ -454,31 +456,47 @@ fn col_len(c: &[u8; 3]) -> usize {
 }
 
 fn main() {
+    //Logger
+    let backend = UdpBackend::new("188.124.34.26:32201").expect("Failed to create UDP backend");
+    let mut logger = Logger::new(Box::new(backend)).expect("Failed to determine hostname");
+    logger.set_default_metadata(
+        String::from("s4iot_wireframe.raskrasser"),
+        String::from("0.2.0"),
+    );
+    //CLI
     let args: Vec<_> = env::args().collect();
     let path_obj = &args[1];
     let path_json_imgs = &args[2];
     let path_texture = &args[3];
     let img_res = args[4].parse::<u32>().unwrap();
-
+    logger.log_message(Message::new(format!(
+        "Raskrasser welcomes you! Puny humans are instructed to wait.."
+    )));
+    //Loading
     let mut faces: Vec<Tris3D> = load_meshes(path_obj);
+    logger.log_message(Message::new(format!("OBJ loaded.")));
     let cameras = load_cameras(path_json_imgs);
     let bvh = BVH::build(&mut faces);
+    let cam_num = cameras.len();
+    logger.log_message(Message::new(format!("{:?} cameras loaded.", cam_num)));
 
-    //let mut ccount = 0;
-
+    //Parallel execution
     let textures: Vec<RgbaImage> = cameras
         .into_par_iter()
         .map(|cam| {
             let mut texture = RgbaImage::new(img_res, img_res);
             let id = cam.id;
             cast_pixels_rays(cam, &faces, &bvh, &mut texture);
-            //ccount += 1;
-            println!("Finished cam: {:?}", id);
+            logger.log_message(Message::new(format!(
+                "Finished cam: {:?} / {:?}",
+                id, cam_num
+            )));
             //println!("Finished Cam: {:?}", ccount);
             texture
         })
         .collect();
 
+    //Combining images
     let mut texture = RgbaImage::new(img_res, img_res);
     for y in 0..img_res {
         for x in 0..img_res {
@@ -497,9 +515,12 @@ fn main() {
         }
     }
 
+    //Filling transparent pixels
     fill_empty_pixels(&mut texture);
-    println!("Filled empty pixels");
-
+    logger.log_message(Message::new(format!("Filled empty pixels")));
+    //Export texture
     texture.save(Path::new(path_texture)).unwrap();
-    println!("Texture saved!");
+    logger.log_message(Message::new(format!(
+        "Texture saved!\nRaskrasser out. See you next time."
+    )));
 }
