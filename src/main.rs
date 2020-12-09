@@ -10,6 +10,7 @@ use obj;
 use rayon::prelude::*;
 use serde_derive::Deserialize;
 use serde_json;
+use std::env;
 use std::fs;
 use std::path::Path;
 
@@ -311,7 +312,7 @@ fn closest_faces(faces: Vec<&Tris3D>, pt: Point3<f32>) -> Vec<&Tris3D> {
         .collect()
 }
 
-fn _closest_faces(faces: Vec<&Tris3D>, pt: Point3<f32>) -> Vec<&Tris3D> {
+fn _closest_faces(faces: Vec<&Tris3D>, _pt: Point3<f32>) -> Vec<&Tris3D> {
     if faces.len() == 1 {
         return faces;
     }
@@ -449,12 +450,11 @@ fn fill_empty_pixels(texture: &mut RgbaImage) {
 }
 
 fn main() {
-    //let path_obj = "/home/p4/Work/Phygitalism/201127_Raskrasser/tests/test_1/dumpIot/me.obj";
-    //let path_json_imgs = "/home/p4/Work/Phygitalism/201127_Raskrasser/tests/test_1/dumpIot";
-    let path_obj =
-        "/home/p4/Work/Phygitalism/201127_Raskrasser/tests/test_0/Scan/TestScan42Scan.obj";
-    let path_json_imgs = "/home/p4/Work/Phygitalism/201127_Raskrasser/tests/test_0";
-    let img_res: u32 = 1024 * 2;
+    let args: Vec<_> = env::args().collect();
+    let path_obj = &args[1];
+    let path_json_imgs = &args[2];
+    let path_texture = &args[3];
+    let img_res = args[4].parse::<u32>().unwrap();
 
     let mut faces: Vec<Tris3D> = load_meshes(path_obj);
     let cameras = load_cameras(path_json_imgs);
@@ -504,13 +504,6 @@ fn main() {
     fill_empty_pixels(&mut texture);
     println!("Filled empty pixels");
 
-    texture
-        .save(
-            Path::new(path_obj)
-                .parent()
-                .unwrap()
-                .join("mono_texture.png"),
-        )
-        .unwrap();
+    texture.save(Path::new(path_texture)).unwrap();
     println!("Texture saved!");
 }
