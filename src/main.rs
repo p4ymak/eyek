@@ -13,7 +13,6 @@ use serde_json;
 use std::env;
 use std::fs;
 use std::path::Path;
-
 #[derive(Debug, Clone)]
 struct Tris2D {
     a: Point3<f32>,
@@ -213,7 +212,7 @@ fn cast_pixels_rays(
     let height = img.dimensions().1 as usize;
     let ratio = width as f32 / height as f32;
     //let fovx = 0.541 as f32;
-    let fovy = 0.72; //((fovx).atan() * ratio).tan();
+    let fovy = 0.844; //((fovx).atan() * ratio).tan();
     let [cam_x, cam_y, cam_z] = camera_raw.pos;
     let rot = camera_raw.rot;
     let cam_tr = Translation3::new(cam_x, cam_y, cam_z);
@@ -435,7 +434,7 @@ fn blend_pixels(texture: &RgbaImage, x: u32, y: u32) -> Rgba<u8> {
 
 fn fill_empty_pixels(texture: &mut RgbaImage) {
     let (width, height) = texture.dimensions();
-    for v in 0..(height as usize) {
+    for v in (0..(height as usize)).rev() {
         for u in 0..(width as usize) {
             let current_color = *texture.get_pixel(u as u32, v as u32);
             if current_color[3] == 0 {
@@ -447,6 +446,11 @@ fn fill_empty_pixels(texture: &mut RgbaImage) {
         }
     }
     //texture
+}
+
+fn col_len(c: &[u8; 3]) -> usize {
+    (((c[0] as usize).pow(2) + (c[1] as usize).pow(2) + (c[2] as usize).pow(2)) as f32).sqrt()
+        as usize
 }
 
 fn main() {
@@ -478,25 +482,17 @@ fn main() {
     let mut texture = RgbaImage::new(img_res, img_res);
     for y in 0..img_res {
         for x in 0..img_res {
-            let mut n = 0;
-            let mut r: usize = 0;
-            let mut g: usize = 0;
-            let mut b: usize = 0;
-
+            let mut colors = Vec::<[u8; 3]>::new();
             for part in &textures {
                 let col = part.get_pixel(x, y);
                 if col[3] != 0 {
-                    n += 1;
-                    r += col[0] as usize;
-                    g += col[1] as usize;
-                    b += col[2] as usize;
+                    colors.push([col[0], col[1], col[2]]);
                 }
             }
-            if n > 0 {
-                r /= n;
-                g /= n;
-                b /= n;
-                texture.put_pixel(x, y, Rgba([r as u8, g as u8, b as u8, 255]))
+            if colors.len() > 0 {
+                colors.sort_by(|a, b| (col_len(a)).cmp(&col_len(b)));
+                let m = colors[colors.len() / 2];
+                texture.put_pixel(x, y, Rgba([m[0], m[1], m[2], 255]))
             }
         }
     }
