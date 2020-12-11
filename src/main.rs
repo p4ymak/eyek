@@ -5,7 +5,7 @@ use bvh::nalgebra::distance;
 use bvh::nalgebra::geometry::{Isometry3, Perspective3, Quaternion, Translation3, UnitQuaternion};
 use bvh::nalgebra::{Point3, Vector3};
 use bvh::ray::Ray;
-use gelf::{Level, Logger, Message, UdpBackend};
+use gelf::{Logger, Message, UdpBackend};
 use image::{DynamicImage, GenericImageView, Rgba, RgbaImage};
 use obj;
 use rayon::prelude::*;
@@ -38,7 +38,6 @@ impl Tris2D {
         let mut coords_y = [self.a.y, self.b.y, self.c.y];
         coords_x.sort_by(|i, j| i.partial_cmp(j).unwrap());
         coords_y.sort_by(|i, j| i.partial_cmp(j).unwrap());
-        //return min_x, min_y, max_x, max_y of triangle
         [coords_x[0], coords_y[0], coords_x[2], coords_y[2]]
     }
     fn cartesian_to_barycentric(&self, pt: Point3<f32>) -> Point3<f32> {
@@ -95,9 +94,9 @@ struct VecCameraJSON {
 }
 #[derive(Debug, Deserialize)]
 struct CameraJSON {
-    cameraPosition: Vec<f32>,
-    cameraRotation: Vec<f32>,
-    imageName: String,
+    camera_position: Vec<f32>,
+    camera_rotation: Vec<f32>,
+    image_name: String,
 }
 #[derive(Debug)]
 struct CameraRaw {
@@ -173,22 +172,22 @@ fn load_cameras(path_json_imgs: &str) -> Vec<CameraRaw> {
     for cam in cameras_json.data {
         id += 1;
         let pos = [
-            cam.cameraPosition[0],
-            cam.cameraPosition[1],
-            -cam.cameraPosition[2],
+            cam.camera_position[0],
+            cam.camera_position[1],
+            -cam.camera_position[2],
         ];
         //This quaternion as a 4D vector of coordinates in the [ x, y, z, w ] storage order.
         let rot = UnitQuaternion::from_quaternion(Quaternion::new(
             //KOCTbIJIb
             //cam.cameraRotation[0],
-            -cam.cameraRotation[3],
-            -cam.cameraRotation[2],
-            cam.cameraRotation[1],
-            cam.cameraRotation[0],
+            -cam.camera_rotation[3],
+            -cam.camera_rotation[2],
+            cam.camera_rotation[1],
+            cam.camera_rotation[0],
         ));
 
         let img_path = Path::new(path_json_imgs)
-            .join(cam.imageName)
+            .join(cam.image_name)
             .to_string_lossy()
             .into_owned();
 
@@ -213,8 +212,7 @@ fn cast_pixels_rays(
     let width = img.dimensions().0 as usize;
     let height = img.dimensions().1 as usize;
     let ratio = width as f32 / height as f32;
-    //let fovx = 0.541 as f32;
-    let fovy = 0.844; //((fovx).atan() * ratio).tan();
+    let fovy = 0.844;
     let [cam_x, cam_y, cam_z] = camera_raw.pos;
     let rot = camera_raw.rot;
     let cam_tr = Translation3::new(cam_x, cam_y, cam_z);
@@ -227,14 +225,6 @@ fn cast_pixels_rays(
     for _ in 0..width {
         checked_pixels.push(vec![false; height]);
     }
-
-    //DEBUG
-    //let polycount = faces.len();
-    //let mut ray_casts = 0;
-    //let mut test_img = RgbaImage::new(width as u32, height as u32);
-    //let ray_target_test =
-    //    iso.transform_point(&perspective.unproject_point(&Point3::new(0.0, 0.0, 1.0)));
-    //println!("CAM_POS:\n{:?}\nCAM_TAR:{:?}", &cam_pos, ray_target_test);
 
     for y in 0..height {
         for x in 0..width {
@@ -251,24 +241,13 @@ fn cast_pixels_rays(
                         (y as f32 / height as f32) * 2.0 - 1.0,
                         1.0,
                     )));
-                //println!("{:?}\n{:?}\n{:?}\n", pos_pt, ray_origin, ray_target_pt);
                 let ray = Ray::new(
                     ray_origin,
-                    Vector3::new(
-                        ray_target_pt.x, // - ray_origin.x,
-                        ray_target_pt.y, // - ray_origin.y,
-                        ray_target_pt.z, // - ray_origin.z,
-                    ),
+                    Vector3::new(ray_target_pt.x, ray_target_pt.y, ray_target_pt.z),
                 );
 
                 let collisions = bvh.traverse(&ray, &faces);
-                //if collisions.len() == 0 {
-                //    checked_pixels[x][y] = true;
-                //    continue;
-                //}
 
-                //test_img.put_pixel(x as u32, height as u32 - y as u32 - 1, Rgba([0, 0, 0, 255]));
-                //ray_casts += 1;
                 for face in closest_faces(collisions, cam_pos) {
                     face_img_to_uv(
                         &face,
@@ -282,10 +261,6 @@ fn cast_pixels_rays(
             }
         }
     }
-    //test_img
-    //    .save("/home/p4/Work/Phygitalism/201127_Raskrasser/tests/test_1/dumpIot/test.png")
-    //    .unwrap();
-    //println!("Collisions: {:?}/{:?}", ray_casts, polycount);
 }
 
 fn closest_faces(faces: Vec<&Tris3D>, pt: Point3<f32>) -> Vec<&Tris3D> {
@@ -311,13 +286,6 @@ fn closest_faces(faces: Vec<&Tris3D>, pt: Point3<f32>) -> Vec<&Tris3D> {
         .filter(|f| f.0 - closest[0].0 <= *epsilon)
         .map(|f| f.1)
         .collect()
-}
-
-fn _closest_faces(faces: Vec<&Tris3D>, _pt: Point3<f32>) -> Vec<&Tris3D> {
-    if faces.len() == 1 {
-        return faces;
-    }
-    return vec![faces[0], faces[1]];
 }
 
 fn mix_colors(source: Rgba<u8>, target: &Rgba<u8>) -> Rgba<u8> {
@@ -359,7 +327,7 @@ fn face_img_to_uv(
         b: perspective.project_point(&iso.inverse_transform_point(&face.v_3d[1])),
         c: perspective.project_point(&iso.inverse_transform_point(&face.v_3d[2])),
     };
-    // println!("{:?}", face_cam);
+
     for v in uv_min_y..uv_max_y {
         for u in uv_min_x..uv_max_x {
             let p_uv = Point3::new(u as f32 / uv_width as f32, v as f32 / uv_height as f32, 0.0);
@@ -373,10 +341,9 @@ fn face_img_to_uv(
                     && p_cam.x < 1.0
                     && p_cam.y < 1.0
                 {
-                    // println!("{:?}", p_cam);
                     let cam_x = (cam_width * (p_cam.x + 1.0) / 2.0) as u32;
                     let cam_y = (cam_height * (p_cam.y + 1.0) / 2.0) as u32;
-                    // println!("x: {:?}\ny: {:?}\n", cam_x, cam_y);
+
                     if cam_x < cam_width as u32
                         && cam_x > 0
                         && cam_y < cam_height as u32
@@ -447,7 +414,6 @@ fn fill_empty_pixels(texture: &mut RgbaImage) {
             }
         }
     }
-    //texture
 }
 
 fn col_len(c: &[u8; 3]) -> usize {
@@ -491,7 +457,6 @@ fn main() {
                 "Finished cam: {:?} / {:?}",
                 id, cam_num
             )));
-            //println!("Finished Cam: {:?}", ccount);
             texture
         })
         .collect();
@@ -518,6 +483,7 @@ fn main() {
     //Filling transparent pixels
     fill_empty_pixels(&mut texture);
     logger.log_message(Message::new(format!("Filled empty pixels")));
+
     //Export texture
     texture.save(Path::new(path_texture)).unwrap();
     logger.log_message(Message::new(format!(
