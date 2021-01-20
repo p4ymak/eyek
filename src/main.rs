@@ -5,7 +5,6 @@ use bvh::nalgebra::distance;
 use bvh::nalgebra::geometry::{Isometry3, Perspective3, Quaternion, Translation3, UnitQuaternion};
 use bvh::nalgebra::{Point3, Vector3};
 use bvh::ray::Ray;
-use gelf::{Logger, Message, UdpBackend};
 use image::{DynamicImage, GenericImageView, Rgba, RgbaImage};
 use obj;
 use rayon::prelude::*;
@@ -97,6 +96,8 @@ struct CameraJSON {
     camera_position: Vec<f32>,
     camera_rotation: Vec<f32>,
     fov_x: f32,
+    limit_near: f32,
+    limit_far: f32,
     image_name: String,
 }
 #[derive(Debug)]
@@ -105,6 +106,8 @@ struct CameraRaw {
     pos: [f32; 3],
     rot: UnitQuaternion<f32>,
     fov_x: f32,
+    limit_near: f32,
+    limit_far: f32,
     img_path: String,
 }
 
@@ -185,9 +188,9 @@ fn load_cameras(path_json_imgs: &str) -> Vec<CameraRaw> {
             cam.camera_rotation[2],
             cam.camera_rotation[3],
         ));
-
         let fov_x = cam.fov_x;
-
+        let limit_near = cam.limit_near;
+        let limit_far = cam.limit_far;
         let img_path = Path::new(path_json_imgs)
             .join(cam.image_name)
             .to_string_lossy()
@@ -198,6 +201,8 @@ fn load_cameras(path_json_imgs: &str) -> Vec<CameraRaw> {
             pos,
             rot,
             fov_x,
+            limit_near,
+            limit_far,
             img_path,
         });
     }
@@ -216,6 +221,8 @@ fn cast_pixels_rays(
     let height = img.dimensions().1 as usize;
     let ratio = width as f32 / height as f32;
     let fov_y = 2.0 * ((camera_raw.fov_x / 2.0).tan() / ratio).atan();
+    let limit_near = camera_raw.limit_near;
+    let limit_far = camera_raw.limit_far;
     let [cam_x, cam_y, cam_z] = camera_raw.pos;
     let rot = camera_raw.rot;
     let cam_tr = Translation3::new(cam_x, cam_y, cam_z);
@@ -223,7 +230,7 @@ fn cast_pixels_rays(
     let iso_targ = Isometry3::from_parts(cam_tr, rot);
     let cam_target = iso_targ.transform_point(&Point3::new(0.0, 0.0, 1.0));
     let iso = Isometry3::face_towards(&cam_pos, &cam_target, &Vector3::y());
-    let perspective = Perspective3::new(ratio, fov_y, 0.1, 100.0);
+    let perspective = Perspective3::new(ratio, fov_y, limit_near, limit_far);
     let mut checked_pixels: Vec<Vec<bool>> = Vec::with_capacity(width);
     for _ in 0..width {
         checked_pixels.push(vec![false; height]);
@@ -432,6 +439,10 @@ fn main() {
     let path_texture = &args[3];
     let img_res_x = args[4].parse::<u32>().unwrap();
     let img_res_y = args[5].parse::<u32>().unwrap();
+    let fill = match args[6].pasre::<u8>() {
+        Ok(1) => true,
+        _ => false,
+    };
     println!("Raskrasser welcomes you! Puny humans are instructed to wait..");
     //Loading
     let mut faces: Vec<Tris3D> = load_meshes(path_obj);
@@ -473,9 +484,10 @@ fn main() {
     }
 
     //Filling transparent pixels
-    fill_empty_pixels(&mut texture);
-    println!("Filled empty pixels");
-
+    if fill {
+        fill_empty_pixels(&mut texture);
+        println!("Filled empty pixels");
+    }
     //Export texture
     texture.save(Path::new(path_texture)).unwrap();
     println!("Texture saved!\nRaskrasser out. See you next time.");
