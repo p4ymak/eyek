@@ -131,9 +131,16 @@ fn load_meshes(path_obj: &str) -> Vec<Tris3D> {
                     let x = data.position[vert.0][0];
                     let y = data.position[vert.0][1];
                     let z = data.position[vert.0][2];
-                    let u = data.texture[vert.1.unwrap()][0];
-                    let v = data.texture[vert.1.unwrap()][1];
+                    let uv = match vert.1 {
+                        Some(i) => match data.texture.get(i) {
+                            Some(uv) => uv,
+                            _ => continue,
+                        },
+                        _ => continue,
+                    };
 
+                    let u = uv[0];
+                    let v = uv[1];
                     vs_pos.push(Point3::new(x, y, z));
                     vs_uv.push(Point3::new(u, v, 0.0));
 
@@ -434,12 +441,16 @@ fn col_len(c: &[u8; 3]) -> usize {
 fn main() {
     //CLI
     let args: Vec<_> = env::args().collect();
+    if args.len() < 7 {
+        println!("Arguments are insufficient. You are allowed to try again.");
+        return;
+    }
     let path_obj = &args[1];
     let path_json_imgs = &args[2];
     let path_texture = &args[3];
     let img_res_x = args[4].parse::<u32>().unwrap();
     let img_res_y = args[5].parse::<u32>().unwrap();
-    let fill = match args[6].pasre::<u8>() {
+    let fill = match args[6].parse::<u8>() {
         Ok(1) => true,
         _ => false,
     };
