@@ -96,6 +96,7 @@ struct VecCameraJSON {
 struct CameraJSON {
     camera_position: Vec<f32>,
     camera_rotation: Vec<f32>,
+    fov_x: f32,
     image_name: String,
 }
 #[derive(Debug)]
@@ -103,6 +104,7 @@ struct CameraRaw {
     id: usize,
     pos: [f32; 3],
     rot: UnitQuaternion<f32>,
+    fov_x: f32,
     img_path: String,
 }
 
@@ -174,17 +176,17 @@ fn load_cameras(path_json_imgs: &str) -> Vec<CameraRaw> {
         let pos = [
             cam.camera_position[0],
             cam.camera_position[1],
-            -cam.camera_position[2],
+            cam.camera_position[2],
         ];
         //This quaternion as a 4D vector of coordinates in the [ x, y, z, w ] storage order.
         let rot = UnitQuaternion::from_quaternion(Quaternion::new(
-            //KOCTbIJIb
-            //cam.cameraRotation[0],
-            -cam.camera_rotation[3],
-            -cam.camera_rotation[2],
-            cam.camera_rotation[1],
             cam.camera_rotation[0],
+            cam.camera_rotation[1],
+            cam.camera_rotation[2],
+            cam.camera_rotation[3],
         ));
+
+        let fov_x = cam.fov_x;
 
         let img_path = Path::new(path_json_imgs)
             .join(cam.image_name)
@@ -195,6 +197,7 @@ fn load_cameras(path_json_imgs: &str) -> Vec<CameraRaw> {
             id,
             pos,
             rot,
+            fov_x,
             img_path,
         });
     }
@@ -212,7 +215,7 @@ fn cast_pixels_rays(
     let width = img.dimensions().0 as usize;
     let height = img.dimensions().1 as usize;
     let ratio = width as f32 / height as f32;
-    let fovy = 0.844;
+    let fov_y = 2.0 * ((camera_raw.fov_x / 2.0).tan() / ratio).atan();
     let [cam_x, cam_y, cam_z] = camera_raw.pos;
     let rot = camera_raw.rot;
     let cam_tr = Translation3::new(cam_x, cam_y, cam_z);
@@ -220,7 +223,7 @@ fn cast_pixels_rays(
     let iso_targ = Isometry3::from_parts(cam_tr, rot);
     let cam_target = iso_targ.transform_point(&Point3::new(0.0, 0.0, 1.0));
     let iso = Isometry3::face_towards(&cam_pos, &cam_target, &Vector3::y());
-    let perspective = Perspective3::new(ratio, fovy, 0.1, 100.0);
+    let perspective = Perspective3::new(ratio, fov_y, 0.1, 100.0);
     let mut checked_pixels: Vec<Vec<bool>> = Vec::with_capacity(width);
     for _ in 0..width {
         checked_pixels.push(vec![false; height]);
@@ -422,49 +425,38 @@ fn col_len(c: &[u8; 3]) -> usize {
 }
 
 fn main() {
-    //Logger
-    let backend = UdpBackend::new("188.124.34.26:32201").expect("Failed to create UDP backend");
-    let mut logger = Logger::new(Box::new(backend)).expect("Failed to determine hostname");
-    logger.set_default_metadata(
-        String::from("s4iot_wireframe.raskrasser"),
-        String::from("0.2.0"),
-    );
     //CLI
     let args: Vec<_> = env::args().collect();
     let path_obj = &args[1];
     let path_json_imgs = &args[2];
     let path_texture = &args[3];
-    let img_res = args[4].parse::<u32>().unwrap();
-    logger.log_message(Message::new(format!(
-        "Raskrasser welcomes you! Puny humans are instructed to wait.."
-    )));
+    let img_res_x = args[4].parse::<u32>().unwrap();
+    let img_res_y = args[5].parse::<u32>().unwrap();
+    println!("Raskrasser welcomes you! Puny humans are instructed to wait..");
     //Loading
     let mut faces: Vec<Tris3D> = load_meshes(path_obj);
-    logger.log_message(Message::new(format!("OBJ loaded.")));
+    println!("OBJ loaded.");
     let cameras = load_cameras(path_json_imgs);
     let bvh = BVH::build(&mut faces);
     let cam_num = cameras.len();
-    logger.log_message(Message::new(format!("{:?} cameras loaded.", cam_num)));
+    println!("{:?} cameras loaded.", cam_num);
 
     //Parallel execution
     let textures: Vec<RgbaImage> = cameras
         .into_par_iter()
         .map(|cam| {
-            let mut texture = RgbaImage::new(img_res, img_res);
+            let mut texture = RgbaImage::new(img_res_x, img_res_y);
             let id = cam.id;
             cast_pixels_rays(cam, &faces, &bvh, &mut texture);
-            logger.log_message(Message::new(format!(
-                "Finished cam: {:?} / {:?}",
-                id, cam_num
-            )));
+            println!("Finished cam: {:?} / {:?}", id, cam_num);
             texture
         })
         .collect();
 
     //Combining images
-    let mut texture = RgbaImage::new(img_res, img_res);
-    for y in 0..img_res {
-        for x in 0..img_res {
+    let mut texture = RgbaImage::new(img_res_x, img_res_y);
+    for y in 0..img_res_y {
+        for x in 0..img_res_x {
             let mut colors = Vec::<[u8; 3]>::new();
             for part in &textures {
                 let col = part.get_pixel(x, y);
@@ -482,11 +474,9 @@ fn main() {
 
     //Filling transparent pixels
     fill_empty_pixels(&mut texture);
-    logger.log_message(Message::new(format!("Filled empty pixels")));
+    println!("Filled empty pixels");
 
     //Export texture
     texture.save(Path::new(path_texture)).unwrap();
-    logger.log_message(Message::new(format!(
-        "Texture saved!\nRaskrasser out. See you next time."
-    )));
+    println!("Texture saved!\nRaskrasser out. See you next time.");
 }
