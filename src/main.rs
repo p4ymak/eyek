@@ -2,7 +2,7 @@ use bvh::aabb::{Bounded, AABB};
 use bvh::bounding_hierarchy::BHShape;
 use bvh::bvh::BVH;
 use bvh::nalgebra::distance;
-use bvh::nalgebra::geometry::{Isometry3, Perspective3, Quaternion, Translation3, UnitQuaternion};
+use bvh::nalgebra::geometry::{Isometry3, Perspective3, Translation3, UnitQuaternion};
 use bvh::nalgebra::{Point3, Vector3};
 use bvh::ray::Ray;
 use image::{DynamicImage, GenericImageView, Rgba, RgbaImage};
@@ -84,7 +84,6 @@ impl BHShape for Tris3D {
 #[derive(Debug)]
 struct Mesh {
     tris: Vec<Tris3D>,
-    //aabb: [[f32; 3]; 2],
 }
 
 #[derive(Debug, Deserialize)]
@@ -177,7 +176,7 @@ fn load_meshes(path_obj: &str) -> Vec<Tris3D> {
 }
 
 fn load_cameras(path_json_imgs: &str) -> Vec<CameraRaw> {
-    let file_json = fs::File::open(Path::new(path_json_imgs).join("imageData.json")).unwrap();
+    let file_json = fs::File::open(Path::new(path_json_imgs).join("cameras.json")).unwrap();
     let cameras_json: VecCameraJSON = serde_json::from_reader(file_json).unwrap();
     let mut cameras = Vec::<CameraRaw>::new();
     let mut id = 0;
@@ -188,13 +187,11 @@ fn load_cameras(path_json_imgs: &str) -> Vec<CameraRaw> {
             cam.camera_position[1],
             cam.camera_position[2],
         ];
-        //This quaternion as a 4D vector of coordinates in the [ x, y, z, w ] storage order.
-        let rot = UnitQuaternion::from_quaternion(Quaternion::new(
+        let rot = UnitQuaternion::from_euler_angles(
             cam.camera_rotation[0],
             cam.camera_rotation[1],
             cam.camera_rotation[2],
-            cam.camera_rotation[3],
-        ));
+        );
         let fov_x = cam.fov_x;
         let limit_near = cam.limit_near;
         let limit_far = cam.limit_far;
@@ -234,9 +231,7 @@ fn cast_pixels_rays(
     let rot = camera_raw.rot;
     let cam_tr = Translation3::new(cam_x, cam_y, cam_z);
     let cam_pos = Point3::new(cam_x, cam_y, cam_z);
-    let iso_targ = Isometry3::from_parts(cam_tr, rot);
-    let cam_target = iso_targ.transform_point(&Point3::new(0.0, 0.0, 1.0));
-    let iso = Isometry3::face_towards(&cam_pos, &cam_target, &Vector3::y());
+    let iso = Isometry3::from_parts(cam_tr, rot);
     let perspective = Perspective3::new(ratio, fov_y, limit_near, limit_far);
     let mut checked_pixels: Vec<Vec<bool>> = Vec::with_capacity(width);
     for _ in 0..width {
@@ -366,12 +361,15 @@ fn face_img_to_uv(
                         && cam_y < cam_height as u32
                         && cam_y > 0
                     {
-                        let source_color = img.get_pixel(cam_x, (cam_height - 1.0) as u32 - cam_y);
-                        let current_color =
-                            texture.get_pixel(u as u32, uv_height as u32 - v as u32);
-                        let target_color = mix_colors(source_color, current_color);
+                        if (u as u32) < (uv_width as u32) && (v as u32) < (uv_height as u32) {
+                            let source_color =
+                                img.get_pixel(cam_x, (cam_height - 1.0) as u32 - cam_y);
+                            let current_color =
+                                texture.get_pixel(u as u32, uv_height as u32 - v as u32);
+                            let target_color = mix_colors(source_color, current_color);
 
-                        texture.put_pixel(u as u32, uv_height as u32 - v as u32, target_color);
+                            texture.put_pixel(u as u32, uv_height as u32 - v as u32, target_color);
+                        }
                         checked_pixels[cam_x as usize][cam_y as usize] = true;
                     }
                 }
