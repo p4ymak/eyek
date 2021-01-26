@@ -87,13 +87,19 @@ struct Mesh {
 }
 
 #[derive(Debug, Deserialize)]
+struct Coords {
+    x: f32,
+    y: f32,
+    z: f32,
+}
+#[derive(Debug, Deserialize)]
 struct VecCameraJSON {
     data: Vec<CameraJSON>,
 }
 #[derive(Debug, Deserialize)]
 struct CameraJSON {
-    camera_position: Vec<f32>,
-    camera_rotation: Vec<f32>,
+    location: Coords,
+    rotation_euler: Coords,
     fov_x: f32,
     limit_near: f32,
     limit_far: f32,
@@ -182,15 +188,11 @@ fn load_cameras(path_json_imgs: &str) -> Vec<CameraRaw> {
     let mut id = 0;
     for cam in cameras_json.data {
         id += 1;
-        let pos = [
-            cam.camera_position[0],
-            cam.camera_position[1],
-            cam.camera_position[2],
-        ];
+        let pos = [cam.location.x, cam.location.y, cam.location.z];
         let rot = UnitQuaternion::from_euler_angles(
-            cam.camera_rotation[0],
-            cam.camera_rotation[1],
-            cam.camera_rotation[2],
+            cam.rotation_euler.x,
+            cam.rotation_euler.y,
+            cam.rotation_euler.z,
         );
         let fov_x = cam.fov_x;
         let limit_near = cam.limit_near;
@@ -219,6 +221,7 @@ fn cast_pixels_rays(
     faces: &Vec<Tris3D>,
     bvh: &BVH,
     mut texture: &mut RgbaImage,
+    clip_uv: bool,
 ) {
     let img = image::open(camera_raw.img_path).unwrap();
     let width = img.dimensions().0 as usize;
@@ -268,6 +271,7 @@ fn cast_pixels_rays(
                         &mut checked_pixels,
                         &img,
                         &mut texture,
+                        clip_uv,
                     );
                 }
             }
@@ -323,6 +327,7 @@ fn face_img_to_uv(
     checked_pixels: &mut Vec<Vec<bool>>,
     img: &DynamicImage,
     texture: &mut RgbaImage,
+    clip_uv: bool,
 ) {
     let uv_width = texture.dimensions().0 as f32;
     let uv_height = texture.dimensions().1 as f32;
@@ -361,14 +366,24 @@ fn face_img_to_uv(
                         && cam_y < cam_height as u32
                         && cam_y > 0
                     {
-                        if (u as u32) < (uv_width as u32) && (v as u32) < (uv_height as u32) {
+                        if (u as u32) < (uv_width as u32) && (v as u32) < (uv_height as u32)
+                            || !clip_uv
+                        {
+                            let uv_u = match clip_uv {
+                                true => u as u32,
+                                false => (u as f32 % uv_width) as u32,
+                            };
+                            let uv_v = match clip_uv {
+                                true => v as u32,
+                                false => (v as f32 % uv_height) as u32,
+                            };
+
                             let source_color =
                                 img.get_pixel(cam_x, (cam_height - 1.0) as u32 - cam_y);
-                            let current_color =
-                                texture.get_pixel(u as u32, uv_height as u32 - v as u32);
+                            let current_color = texture.get_pixel(uv_u, uv_height as u32 - uv_v);
                             let target_color = mix_colors(source_color, current_color);
 
-                            texture.put_pixel(u as u32, uv_height as u32 - v as u32, target_color);
+                            texture.put_pixel(uv_u, uv_height as u32 - uv_v, target_color);
                         }
                         checked_pixels[cam_x as usize][cam_y as usize] = true;
                     }
@@ -439,7 +454,7 @@ fn col_len(c: &[u8; 3]) -> usize {
 fn main() {
     //CLI
     let args: Vec<_> = env::args().collect();
-    if args.len() < 7 {
+    if args.len() < 8 {
         println!("Arguments are insufficient. You are allowed to try again.");
         return;
     }
@@ -448,11 +463,15 @@ fn main() {
     let path_texture = &args[3];
     let img_res_x = args[4].parse::<u32>().unwrap();
     let img_res_y = args[5].parse::<u32>().unwrap();
-    let fill = match args[6].parse::<u8>() {
+    let clip_uv = match args[6].parse::<u8>() {
         Ok(1) => true,
         _ => false,
     };
-    println!("Raskrasser welcomes you! Puny humans are instructed to wait..");
+    let fill = match args[7].parse::<u8>() {
+        Ok(1) => true,
+        _ => false,
+    };
+    println!("\nRaskrasser welcomes you! Puny humans are instructed to wait..");
     //Loading
     let mut faces: Vec<Tris3D> = load_meshes(path_obj);
     println!("OBJ loaded.");
@@ -467,7 +486,7 @@ fn main() {
         .map(|cam| {
             let mut texture = RgbaImage::new(img_res_x, img_res_y);
             let id = cam.id;
-            cast_pixels_rays(cam, &faces, &bvh, &mut texture);
+            cast_pixels_rays(cam, &faces, &bvh, &mut texture, clip_uv);
             println!("Finished cam: {:?} / {:?}", id, cam_num);
             texture
         })
