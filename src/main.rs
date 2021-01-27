@@ -116,6 +116,11 @@ struct CameraRaw {
     img_path: String,
 }
 
+struct Properties {
+    clip_uv: bool,
+    fill: bool,
+}
+
 fn load_meshes(path_obj: &str) -> Vec<Tris3D> {
     let data = obj::Obj::load(path_obj).unwrap().data;
     let mut tris = Vec::<Tris3D>::new();
@@ -221,7 +226,7 @@ fn cast_pixels_rays(
     faces: &Vec<Tris3D>,
     bvh: &BVH,
     mut texture: &mut RgbaImage,
-    clip_uv: bool,
+    properties: &Properties,
 ) {
     let img = image::open(camera_raw.img_path).unwrap();
     let width = img.dimensions().0 as usize;
@@ -271,7 +276,7 @@ fn cast_pixels_rays(
                         &mut checked_pixels,
                         &img,
                         &mut texture,
-                        clip_uv,
+                        properties,
                     );
                 }
             }
@@ -327,8 +332,9 @@ fn face_img_to_uv(
     checked_pixels: &mut Vec<Vec<bool>>,
     img: &DynamicImage,
     texture: &mut RgbaImage,
-    clip_uv: bool,
+    properties: &Properties,
 ) {
+    let clip_uv = properties.clip_uv;
     let uv_width = texture.dimensions().0 as f32;
     let uv_height = texture.dimensions().1 as f32;
     let uv_min_x = (face.v_uv.bounds()[0] * uv_width).floor() as usize;
@@ -380,10 +386,11 @@ fn face_img_to_uv(
 
                             let source_color =
                                 img.get_pixel(cam_x, (cam_height - 1.0) as u32 - cam_y);
-                            let current_color = texture.get_pixel(uv_u, uv_height as u32 - uv_v);
+                            let current_color =
+                                texture.get_pixel(uv_u, uv_height as u32 - uv_v - 1);
                             let target_color = mix_colors(source_color, current_color);
 
-                            texture.put_pixel(uv_u, uv_height as u32 - uv_v, target_color);
+                            texture.put_pixel(uv_u, uv_height as u32 - uv_v - 1, target_color);
                         }
                         checked_pixels[cam_x as usize][cam_y as usize] = true;
                     }
@@ -463,15 +470,18 @@ fn main() {
     let path_texture = &args[3];
     let img_res_x = args[4].parse::<u32>().unwrap();
     let img_res_y = args[5].parse::<u32>().unwrap();
-    let clip_uv = match args[6].parse::<u8>() {
-        Ok(1) => true,
-        _ => false,
-    };
-    let fill = match args[7].parse::<u8>() {
-        Ok(1) => true,
-        _ => false,
+    let properties = Properties {
+        clip_uv: match args[6].parse::<u8>() {
+            Ok(1) => true,
+            _ => false,
+        },
+        fill: match args[7].parse::<u8>() {
+            Ok(1) => true,
+            _ => false,
+        },
     };
     println!("\nRaskrasser welcomes you! Puny humans are instructed to wait..");
+
     //Loading
     let mut faces: Vec<Tris3D> = load_meshes(path_obj);
     println!("OBJ loaded.");
@@ -486,7 +496,7 @@ fn main() {
         .map(|cam| {
             let mut texture = RgbaImage::new(img_res_x, img_res_y);
             let id = cam.id;
-            cast_pixels_rays(cam, &faces, &bvh, &mut texture, clip_uv);
+            cast_pixels_rays(cam, &faces, &bvh, &mut texture, &properties);
             println!("Finished cam: {:?} / {:?}", id, cam_num);
             texture
         })
@@ -512,7 +522,7 @@ fn main() {
     }
 
     //Filling transparent pixels
-    if fill {
+    if properties.fill {
         fill_empty_pixels(&mut texture);
         println!("Filled empty pixels");
     }
