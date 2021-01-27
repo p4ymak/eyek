@@ -337,10 +337,10 @@ fn face_img_to_uv(
     let clip_uv = properties.clip_uv;
     let uv_width = texture.dimensions().0 as f32;
     let uv_height = texture.dimensions().1 as f32;
-    let uv_min_x = (face.v_uv.bounds()[0] * uv_width).floor() as usize;
-    let uv_min_y = (face.v_uv.bounds()[1] * uv_height).floor() as usize;
-    let uv_max_x = (face.v_uv.bounds()[2] * uv_width).ceil() as usize;
-    let uv_max_y = (face.v_uv.bounds()[3] * uv_height).ceil() as usize;
+    let uv_min_u = (face.v_uv.bounds()[0] * uv_width).floor() as usize;
+    let uv_min_v = (face.v_uv.bounds()[1] * uv_height).floor() as usize;
+    let uv_max_u = (face.v_uv.bounds()[2] * uv_width).ceil() as usize;
+    let uv_max_v = (face.v_uv.bounds()[3] * uv_height).ceil() as usize;
 
     let cam_width = img.dimensions().0 as f32;
     let cam_height = img.dimensions().1 as f32;
@@ -351,8 +351,8 @@ fn face_img_to_uv(
         c: perspective.project_point(&iso.inverse_transform_point(&face.v_3d[2])),
     };
 
-    for v in uv_min_y..uv_max_y {
-        for u in uv_min_x..uv_max_x {
+    for v in uv_min_v..=uv_max_v {
+        for u in uv_min_u..=uv_max_u {
             let p_uv = Point3::new(u as f32 / uv_width as f32, v as f32 / uv_height as f32, 0.0);
             if face.v_uv.has_point(p_uv) {
                 let p_bary = face.v_uv.cartesian_to_barycentric(p_uv);
@@ -384,16 +384,15 @@ fn face_img_to_uv(
                                 false => (v as f32 % uv_height) as u32,
                             };
 
-                            let source_color =
-                                img.get_pixel(cam_x, (cam_height - 1.0) as u32 - cam_y);
+                            let source_color = img.get_pixel(cam_x, cam_height as u32 - cam_y - 1);
                             let current_color =
                                 texture.get_pixel(uv_u, uv_height as u32 - uv_v - 1);
                             let target_color = mix_colors(source_color, current_color);
 
                             texture.put_pixel(uv_u, uv_height as u32 - uv_v - 1, target_color);
                         }
-                        checked_pixels[cam_x as usize][cam_y as usize] = true;
                     }
+                    checked_pixels[cam_x as usize][cam_height as usize - cam_y as usize - 1] = true;
                 }
             }
         }
@@ -436,6 +435,28 @@ fn blend_pixels(texture: &RgbaImage, x: u32, y: u32) -> Rgba<u8> {
         b /= neibs_count;
     }
     Rgba([r as u8, g as u8, b as u8, 255])
+}
+
+fn combine_by_median(textures: Vec<RgbaImage>) -> RgbaImage {
+    let (img_res_x, img_res_y) = textures[0].dimensions();
+    let mut mono_texture = RgbaImage::new(img_res_x, img_res_y);
+    for y in 0..img_res_y {
+        for x in 0..img_res_x {
+            let mut colors = Vec::<[u8; 3]>::new();
+            for part in &textures {
+                let col = part.get_pixel(x, y);
+                if col[3] != 0 {
+                    colors.push([col[0], col[1], col[2]]);
+                }
+            }
+            if colors.len() > 0 {
+                colors.sort_by(|a, b| (col_len(a)).cmp(&col_len(b)));
+                let m = colors[colors.len() / 2];
+                mono_texture.put_pixel(x, y, Rgba([m[0], m[1], m[2], 255]))
+            }
+        }
+    }
+    mono_texture
 }
 
 fn fill_empty_pixels(texture: &mut RgbaImage) {
@@ -488,7 +509,11 @@ fn main() {
     let cameras = load_cameras(path_json_imgs);
     let bvh = BVH::build(&mut faces);
     let cam_num = cameras.len();
-    println!("{:?} cameras loaded.", cam_num);
+    let cameras_loaded = match cam_num {
+        1 => "Camera loaded.".to_string(),
+        _ => format!("{:?} cameras loaded.", cam_num),
+    };
+    println!("{}", cameras_loaded);
 
     //Parallel execution
     let textures: Vec<RgbaImage> = cameras
@@ -497,36 +522,19 @@ fn main() {
             let mut texture = RgbaImage::new(img_res_x, img_res_y);
             let id = cam.id;
             cast_pixels_rays(cam, &faces, &bvh, &mut texture, &properties);
-            println!("Finished cam: {:?} / {:?}", id, cam_num);
+            println!("Finished cam: #{:?} / {:?}", id, cam_num);
             texture
         })
         .collect();
 
     //Combining images
-    let mut texture = RgbaImage::new(img_res_x, img_res_y);
-    for y in 0..img_res_y {
-        for x in 0..img_res_x {
-            let mut colors = Vec::<[u8; 3]>::new();
-            for part in &textures {
-                let col = part.get_pixel(x, y);
-                if col[3] != 0 {
-                    colors.push([col[0], col[1], col[2]]);
-                }
-            }
-            if colors.len() > 0 {
-                colors.sort_by(|a, b| (col_len(a)).cmp(&col_len(b)));
-                let m = colors[colors.len() / 2];
-                texture.put_pixel(x, y, Rgba([m[0], m[1], m[2], 255]))
-            }
-        }
-    }
-
+    let mut mono_texture = combine_by_median(textures);
     //Filling transparent pixels
     if properties.fill {
-        fill_empty_pixels(&mut texture);
+        fill_empty_pixels(&mut mono_texture);
         println!("Filled empty pixels");
     }
     //Export texture
-    texture.save(Path::new(path_texture)).unwrap();
+    mono_texture.save(Path::new(path_texture)).unwrap();
     println!("Texture saved!\nRaskrasser out. See you next time.");
 }
