@@ -10,6 +10,7 @@ use obj;
 use rayon::prelude::*;
 use serde_derive::Deserialize;
 use serde_json;
+use std::collections::HashMap;
 use std::env;
 use std::fs;
 use std::path::Path;
@@ -245,7 +246,7 @@ fn cast_pixels_rays(
     for _ in 0..width {
         checked_pixels.push(vec![false; height]);
     }
-
+    /*
     for y in 0..height {
         for x in 0..width {
             if !checked_pixels[x][y] {
@@ -267,9 +268,10 @@ fn cast_pixels_rays(
                     Vector3::new(ray_target_pt.x, ray_target_pt.y, ray_target_pt.z),
                 );
 
-                let collisions = bvh.traverse(&ray, &faces);
+                let mut collisions = bvh.traverse(&ray, &faces);
+                collisions.truncate(2);
 
-                for face in closest_faces(collisions, cam_pos) {
+                for face in collisions {
                     face_img_to_uv(
                         &face,
                         &iso,
@@ -283,9 +285,21 @@ fn cast_pixels_rays(
             }
         }
     }
+    */
+    for face in faces {
+        face_img_to_uv(
+            &face,
+            &iso,
+            &perspective,
+            &mut checked_pixels,
+            &img,
+            &mut texture,
+            properties,
+        );
+    }
 }
 
-fn closest_faces(faces: Vec<&Tris3D>, pt: Point3<f32>) -> Vec<&Tris3D> {
+fn _closest_faces(faces: Vec<&Tris3D>, pt: Point3<f32>) -> Vec<&Tris3D> {
     if faces.len() <= 1 {
         return faces;
     }
@@ -400,7 +414,7 @@ fn face_img_to_uv(
     }
 }
 
-fn blend_pixels(texture: &RgbaImage, x: u32, y: u32) -> Rgba<u8> {
+fn blend_pixel_with_neigbhours(texture: &RgbaImage, x: u32, y: u32) -> Rgba<u8> {
     let ways = [
         [0, 1],
         [1, 1],
@@ -441,7 +455,46 @@ fn blend_pixels(texture: &RgbaImage, x: u32, y: u32) -> Rgba<u8> {
 enum Blending {
     Average,
     Median,
-    Moda,
+    Mode,
+}
+
+fn average(colors: Vec<[u8; 3]>) -> [u8; 3] {
+    let mut sum_r: usize = 0;
+    let mut sum_g: usize = 0;
+    let mut sum_b: usize = 0;
+    colors.iter().for_each(|c| {
+        sum_r += c[0] as usize;
+        sum_g += c[1] as usize;
+        sum_b += c[2] as usize;
+    });
+    let r = (sum_r / colors.len()) as u8;
+    let g = (sum_g / colors.len()) as u8;
+    let b = (sum_b / colors.len()) as u8;
+    [r, g, b]
+}
+
+fn median(colors: &mut Vec<[u8; 3]>) -> [u8; 3] {
+    colors.sort_by(|a, b| (col_len(a)).cmp(&col_len(b)));
+    colors[colors.len() / 2]
+}
+
+fn mode(colors: Vec<[u8; 3]>) -> Vec<[u8; 3]> {
+    let mut vec_mode = Vec::new();
+    let mut seen_map = HashMap::new();
+    let mut max_val = 0;
+    for c in colors {
+        let ctr = seen_map.entry(c).or_insert(0);
+        *ctr += 1;
+        if *ctr > max_val {
+            max_val = *ctr;
+        }
+    }
+    for (key, val) in seen_map {
+        if val == max_val {
+            vec_mode.push(key);
+        }
+    }
+    vec_mode
 }
 
 fn combine_layers(textures: Vec<RgbaImage>, blending: Blending) -> RgbaImage {
@@ -457,13 +510,10 @@ fn combine_layers(textures: Vec<RgbaImage>, blending: Blending) -> RgbaImage {
                 }
             }
             if colors.len() > 0 {
-                let m: [u8; 3];
-                match &blending {
-                    Blending::Median => {
-                        colors.sort_by(|a, b| (col_len(a)).cmp(&col_len(b)));
-                        m = colors[colors.len() / 2];
-                    }
-                    _ => continue,
+                let m = match &blending {
+                    Blending::Average => average(colors),
+                    Blending::Median => median(&mut colors),
+                    Blending::Mode => mode(colors)[0],
                 };
                 mono_texture.put_pixel(x, y, Rgba([m[0], m[1], m[2], 255]))
             }
@@ -478,7 +528,7 @@ fn fill_empty_pixels(texture: &mut RgbaImage) {
         for u in 0..(width as usize) {
             let current_color = *texture.get_pixel(u as u32, v as u32);
             if current_color[3] == 0 {
-                let blended_color = blend_pixels(&texture, u as u32, v as u32);
+                let blended_color = blend_pixel_with_neigbhours(&texture, u as u32, v as u32);
                 if blended_color[3] != 0 {
                     texture.put_pixel(u as u32, v as u32, blended_color)
                 }
@@ -515,8 +565,8 @@ fn main() {
         blending: match args[7].parse::<u8>() {
             Ok(0) => Blending::Average,
             Ok(1) => Blending::Median,
-            Ok(2) => Blending::Moda,
-            _ => Blending::Average,
+            Ok(2) => Blending::Mode,
+            _ => Blending::Mode,
         },
     };
     println!("\nRaskrasser welcomes you! Puny humans are instructed to wait..");
