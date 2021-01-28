@@ -103,7 +103,7 @@ struct CameraJSON {
     fov_x: f32,
     limit_near: f32,
     limit_far: f32,
-    image_name: String,
+    image_path: String,
 }
 #[derive(Debug)]
 struct CameraRaw {
@@ -113,16 +113,19 @@ struct CameraRaw {
     fov_x: f32,
     limit_near: f32,
     limit_far: f32,
-    img_path: String,
+    image_path: String,
 }
 
 struct Properties {
     clip_uv: bool,
     fill: bool,
+    blending: Blending,
 }
 
-fn load_meshes(path_obj: &str) -> Vec<Tris3D> {
-    let data = obj::Obj::load(path_obj).unwrap().data;
+fn load_meshes(path_data: &str) -> Vec<Tris3D> {
+    let data = obj::Obj::load(Path::new(path_data).join("mesh.obj"))
+        .unwrap()
+        .data;
     let mut tris = Vec::<Tris3D>::new();
     let mut tris_id: usize = 0;
     for obj in data.objects {
@@ -186,8 +189,8 @@ fn load_meshes(path_obj: &str) -> Vec<Tris3D> {
     return tris;
 }
 
-fn load_cameras(path_json_imgs: &str) -> Vec<CameraRaw> {
-    let file_json = fs::File::open(Path::new(path_json_imgs).join("cameras.json")).unwrap();
+fn load_cameras(path_data: &str) -> Vec<CameraRaw> {
+    let file_json = fs::File::open(Path::new(path_data).join("cameras.json")).unwrap();
     let cameras_json: VecCameraJSON = serde_json::from_reader(file_json).unwrap();
     let mut cameras = Vec::<CameraRaw>::new();
     let mut id = 0;
@@ -202,10 +205,7 @@ fn load_cameras(path_json_imgs: &str) -> Vec<CameraRaw> {
         let fov_x = cam.fov_x;
         let limit_near = cam.limit_near;
         let limit_far = cam.limit_far;
-        let img_path = Path::new(path_json_imgs)
-            .join(cam.image_name)
-            .to_string_lossy()
-            .into_owned();
+        let image_path = cam.image_path;
 
         cameras.push(CameraRaw {
             id,
@@ -214,7 +214,7 @@ fn load_cameras(path_json_imgs: &str) -> Vec<CameraRaw> {
             fov_x,
             limit_near,
             limit_far,
-            img_path,
+            image_path,
         });
     }
 
@@ -228,7 +228,7 @@ fn cast_pixels_rays(
     mut texture: &mut RgbaImage,
     properties: &Properties,
 ) {
-    let img = image::open(camera_raw.img_path).unwrap();
+    let img = image::open(camera_raw.image_path).unwrap();
     let width = img.dimensions().0 as usize;
     let height = img.dimensions().1 as usize;
     let ratio = width as f32 / height as f32;
@@ -249,11 +249,11 @@ fn cast_pixels_rays(
     for y in 0..height {
         for x in 0..width {
             if !checked_pixels[x][y] {
-                let ray_origin = iso.transform_point(&perspective.unproject_point(&Point3::new(
-                    (x as f32 / width as f32) * 2.0 - 1.0,
-                    (y as f32 / height as f32) * 2.0 - 1.0,
-                    -1.0,
-                )));
+                // let ray_origin = iso.transform_point(&perspective.unproject_point(&Point3::new(
+                //     (x as f32 / width as f32) * 2.0 - 1.0,
+                //     (y as f32 / height as f32) * 2.0 - 1.0,
+                //     -1.0,
+                // )));
 
                 let ray_target_pt =
                     iso.transform_point(&perspective.unproject_point(&Point3::new(
@@ -262,7 +262,8 @@ fn cast_pixels_rays(
                         1.0,
                     )));
                 let ray = Ray::new(
-                    ray_origin,
+                    //ray_origin,
+                    cam_pos,
                     Vector3::new(ray_target_pt.x, ray_target_pt.y, ray_target_pt.z),
                 );
 
@@ -437,7 +438,13 @@ fn blend_pixels(texture: &RgbaImage, x: u32, y: u32) -> Rgba<u8> {
     Rgba([r as u8, g as u8, b as u8, 255])
 }
 
-fn combine_by_median(textures: Vec<RgbaImage>) -> RgbaImage {
+enum Blending {
+    Average,
+    Median,
+    Moda,
+}
+
+fn combine_layers(textures: Vec<RgbaImage>, blending: Blending) -> RgbaImage {
     let (img_res_x, img_res_y) = textures[0].dimensions();
     let mut mono_texture = RgbaImage::new(img_res_x, img_res_y);
     for y in 0..img_res_y {
@@ -450,8 +457,14 @@ fn combine_by_median(textures: Vec<RgbaImage>) -> RgbaImage {
                 }
             }
             if colors.len() > 0 {
-                colors.sort_by(|a, b| (col_len(a)).cmp(&col_len(b)));
-                let m = colors[colors.len() / 2];
+                let m: [u8; 3];
+                match &blending {
+                    Blending::Median => {
+                        colors.sort_by(|a, b| (col_len(a)).cmp(&col_len(b)));
+                        m = colors[colors.len() / 2];
+                    }
+                    _ => continue,
+                };
                 mono_texture.put_pixel(x, y, Rgba([m[0], m[1], m[2], 255]))
             }
         }
@@ -486,27 +499,32 @@ fn main() {
         println!("Arguments are insufficient. You are allowed to try again.");
         return;
     }
-    let path_obj = &args[1];
-    let path_json_imgs = &args[2];
-    let path_texture = &args[3];
-    let img_res_x = args[4].parse::<u32>().unwrap();
-    let img_res_y = args[5].parse::<u32>().unwrap();
+    let path_data = &args[1];
+    let path_texture = &args[2];
+    let img_res_x = args[3].parse::<u32>().unwrap();
+    let img_res_y = args[4].parse::<u32>().unwrap();
     let properties = Properties {
-        clip_uv: match args[6].parse::<u8>() {
+        clip_uv: match args[5].parse::<u8>() {
             Ok(1) => true,
             _ => false,
         },
-        fill: match args[7].parse::<u8>() {
+        fill: match args[6].parse::<u8>() {
             Ok(1) => true,
             _ => false,
+        },
+        blending: match args[7].parse::<u8>() {
+            Ok(0) => Blending::Average,
+            Ok(1) => Blending::Median,
+            Ok(2) => Blending::Moda,
+            _ => Blending::Average,
         },
     };
     println!("\nRaskrasser welcomes you! Puny humans are instructed to wait..");
 
     //Loading
-    let mut faces: Vec<Tris3D> = load_meshes(path_obj);
+    let mut faces: Vec<Tris3D> = load_meshes(path_data);
     println!("OBJ loaded.");
-    let cameras = load_cameras(path_json_imgs);
+    let cameras = load_cameras(path_data);
     let bvh = BVH::build(&mut faces);
     let cam_num = cameras.len();
     let cameras_loaded = match cam_num {
@@ -528,7 +546,7 @@ fn main() {
         .collect();
 
     //Combining images
-    let mut mono_texture = combine_by_median(textures);
+    let mut mono_texture = combine_layers(textures, properties.blending);
     //Filling transparent pixels
     if properties.fill {
         fill_empty_pixels(&mut mono_texture);
