@@ -22,6 +22,7 @@ struct Tris2D {
     c: Point3<f32>,
 }
 impl Tris2D {
+    /*
     fn has_point(&self, pt: Point3<f32>) -> bool {
         fn sign(a: Point3<f32>, b: Point3<f32>, c: Point3<f32>) -> f32 {
             (a.x - c.x) * (b.y - c.y) - (b.x - c.x) * (a.y - c.y)
@@ -33,6 +34,17 @@ impl Tris2D {
         let has_pos = (d1 > 0.0) || (d2 > 0.0) || (d3 > 0.0);
         !(has_neg && has_pos)
     }
+    */
+    fn has_point(&self, pt: Point3<f32>) -> bool {
+        let bary = self.cartesian_to_barycentric(pt);
+        bary.x >= 0.0
+            && bary.x <= 1.0
+            && bary.y >= 0.0
+            && bary.z <= 1.0
+            && bary.z >= 0.0
+            && bary.z <= 1.0
+    }
+
     fn bounds(&self) -> [f32; 4] {
         let mut coords_x = [self.a.x, self.b.x, self.c.x];
         let mut coords_y = [self.a.y, self.b.y, self.c.y];
@@ -53,7 +65,7 @@ impl Tris2D {
     fn barycentric_to_cartesian(&self, pt: Point3<f32>) -> Point3<f32> {
         let x = pt.x * self.a.x + pt.y * self.b.x + pt.z * self.c.x;
         let y = pt.x * self.a.y + pt.y * self.b.y + pt.z * self.c.y;
-        let z = 0.0; //pt.x * self.a.z + pt.y * self.b.z + pt.z * self.c.z;
+        let z = pt.x * self.a.z + pt.y * self.b.z + pt.z * self.c.z;
         Point3::new(x, y, z)
     }
 }
@@ -79,6 +91,11 @@ impl BHShape for Tris3D {
 
     fn bh_node_index(&self) -> usize {
         self.node_index
+    }
+}
+impl PartialEq for Tris3D {
+    fn eq(&self, other: &Self) -> bool {
+        self.node_index == other.node_index
     }
 }
 
@@ -288,6 +305,8 @@ fn cast_pixels_rays(
     */
     for face in faces {
         face_img_to_uv(
+            faces,
+            bvh,
             &face,
             &iso,
             &perspective,
@@ -299,7 +318,7 @@ fn cast_pixels_rays(
     }
 }
 
-fn _closest_faces(faces: Vec<&Tris3D>, pt: Point3<f32>) -> Vec<&Tris3D> {
+fn closest_faces(faces: Vec<&Tris3D>, pt: Point3<f32>) -> Vec<&Tris3D> {
     if faces.len() <= 1 {
         return faces;
     }
@@ -315,11 +334,11 @@ fn _closest_faces(faces: Vec<&Tris3D>, pt: Point3<f32>) -> Vec<&Tris3D> {
         .map(|&p| distance(&p, &closest[0].1.mid))
         .collect::<Vec<f32>>();
     range.sort_by(|a, b| a.partial_cmp(&b).unwrap());
-    let epsilon = range.first().unwrap();
+    let epsilon = range.first().unwrap() * 2.0;
 
     closest
         .iter()
-        .filter(|f| f.0 - closest[0].0 <= *epsilon)
+        .filter(|f| f.0 - closest[0].0 <= epsilon)
         .map(|f| f.1)
         .collect()
 }
@@ -341,6 +360,8 @@ fn mix_colors(source: Rgba<u8>, target: &Rgba<u8>) -> Rgba<u8> {
 }
 
 fn face_img_to_uv(
+    faces: &Vec<Tris3D>,
+    bvh: &BVH,
     face: &Tris3D,
     iso: &Isometry3<f32>,
     perspective: &Perspective3<f32>,
@@ -374,40 +395,72 @@ fn face_img_to_uv(
                 let p_cam = face_cam.barycentric_to_cartesian(p_bary);
 
                 if face_cam.has_point(p_cam)
-                    && p_cam.x > -1.0
-                    && p_cam.y > -1.0
-                    && p_cam.x < 1.0
-                    && p_cam.y < 1.0
+                    && p_cam.x >= -1.0
+                    && p_cam.y >= -1.0
+                    && p_cam.x <= 1.0
+                    && p_cam.y <= 1.0
                 {
                     let cam_x = (cam_width * (p_cam.x + 1.0) / 2.0) as u32;
                     let cam_y = (cam_height * (p_cam.y + 1.0) / 2.0) as u32;
 
-                    if cam_x < cam_width as u32
-                        && cam_x > 0
-                        && cam_y < cam_height as u32
-                        && cam_y > 0
-                    {
+                    if cam_x < cam_width as u32 && cam_y < cam_height as u32 {
                         if (u as u32) < (uv_width as u32) && (v as u32) < (uv_height as u32)
                             || !clip_uv
                         {
-                            let uv_u = match clip_uv {
-                                true => u as u32,
-                                false => (u as f32 % uv_width) as u32,
-                            };
-                            let uv_v = match clip_uv {
-                                true => v as u32,
-                                false => (v as f32 % uv_height) as u32,
-                            };
+                            let ray_origin_pt = Point3::new(
+                                iso.translation.x,
+                                iso.translation.y,
+                                iso.translation.z,
+                            );
 
-                            let source_color = img.get_pixel(cam_x, cam_height as u32 - cam_y - 1);
-                            let current_color =
-                                texture.get_pixel(uv_u, uv_height as u32 - uv_v - 1);
-                            let target_color = mix_colors(source_color, current_color);
+                            let ray_origin_pt = iso.transform_point(
+                                &perspective.unproject_point(&Point3::new(p_cam.x, p_cam.y, -1.0)),
+                            );
 
-                            texture.put_pixel(uv_u, uv_height as u32 - uv_v - 1, target_color);
+                            let tris = Tris2D {
+                                a: face.v_3d[0],
+                                b: face.v_3d[1],
+                                c: face.v_3d[2],
+                            };
+                            //let ray_target_pt = tris.barycentric_to_cartesian(p_bary);
+                            let ray_target_pt = iso.transform_point(
+                                &perspective.unproject_point(&Point3::new(p_cam.x, p_cam.y, 1.0)),
+                            );
+
+                            let ray = Ray::new(
+                                //ray_origin,
+                                ray_origin_pt,
+                                Vector3::new(
+                                    ray_target_pt.x - ray_origin_pt.x,
+                                    ray_target_pt.y - ray_origin_pt.y,
+                                    ray_target_pt.z - ray_origin_pt.z,
+                                ),
+                            );
+
+                            let collisions =
+                                closest_faces(bvh.traverse(&ray, &faces), ray_origin_pt);
+                            let is_front = collisions.contains(&face) || collisions.len() == 0;
+                            if is_front {
+                                let uv_u = match clip_uv {
+                                    true => u as u32,
+                                    false => (u as f32 % uv_width) as u32,
+                                };
+                                let uv_v = match clip_uv {
+                                    true => v as u32,
+                                    false => (v as f32 % uv_height) as u32,
+                                };
+
+                                let source_color =
+                                    img.get_pixel(cam_x, cam_height as u32 - cam_y - 1);
+                                //let current_color =
+                                //texture.get_pixel(uv_u, uv_height as u32 - uv_v - 1);
+                                //let target_color = source_color; //mix_colors(source_color, current_color);
+
+                                texture.put_pixel(uv_u, uv_height as u32 - uv_v - 1, source_color);
+                            }
                         }
+                        //checked_pixels[cam_x as usize][cam_height as usize - cam_y as usize - 1] = true;
                     }
-                    checked_pixels[cam_x as usize][cam_height as usize - cam_y as usize - 1] = true;
                 }
             }
         }
@@ -603,6 +656,7 @@ fn main() {
         println!("Filled empty pixels");
     }
     //Export texture
+    // mono_texture = image::imageops::flip_vertical(&mono_texture);
     mono_texture.save(Path::new(path_texture)).unwrap();
     println!("Texture saved!\nRaskrasser out. See you next time.");
 }
