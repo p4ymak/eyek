@@ -256,53 +256,9 @@ fn cast_pixels_rays(
     let [cam_x, cam_y, cam_z] = camera_raw.pos;
     let rot = camera_raw.rot;
     let cam_tr = Translation3::new(cam_x, cam_y, cam_z);
-    let cam_pos = Point3::new(cam_x, cam_y, cam_z);
     let iso = Isometry3::from_parts(cam_tr, rot);
     let perspective = Perspective3::new(ratio, fov_y, limit_near, limit_far);
-    let mut checked_pixels: Vec<Vec<bool>> = Vec::with_capacity(width);
-    for _ in 0..width {
-        checked_pixels.push(vec![false; height]);
-    }
-    /*
-    for y in 0..height {
-        for x in 0..width {
-            if !checked_pixels[x][y] {
-                // let ray_origin = iso.transform_point(&perspective.unproject_point(&Point3::new(
-                //     (x as f32 / width as f32) * 2.0 - 1.0,
-                //     (y as f32 / height as f32) * 2.0 - 1.0,
-                //     -1.0,
-                // )));
 
-                let ray_target_pt =
-                    iso.transform_point(&perspective.unproject_point(&Point3::new(
-                        (x as f32 / width as f32) * 2.0 - 1.0,
-                        (y as f32 / height as f32) * 2.0 - 1.0,
-                        1.0,
-                    )));
-                let ray = Ray::new(
-                    //ray_origin,
-                    cam_pos,
-                    Vector3::new(ray_target_pt.x, ray_target_pt.y, ray_target_pt.z),
-                );
-
-                let mut collisions = bvh.traverse(&ray, &faces);
-                collisions.truncate(2);
-
-                for face in collisions {
-                    face_img_to_uv(
-                        &face,
-                        &iso,
-                        &perspective,
-                        &mut checked_pixels,
-                        &img,
-                        &mut texture,
-                        properties,
-                    );
-                }
-            }
-        }
-    }
-    */
     for face in faces {
         face_img_to_uv(
             faces,
@@ -310,7 +266,6 @@ fn cast_pixels_rays(
             &face,
             &iso,
             &perspective,
-            &mut checked_pixels,
             &img,
             &mut texture,
             properties,
@@ -318,7 +273,7 @@ fn cast_pixels_rays(
     }
 }
 
-fn closest_faces(faces: Vec<&Tris3D>, pt: Point3<f32>) -> Vec<&Tris3D> {
+fn _closest_faces(faces: Vec<&Tris3D>, pt: Point3<f32>) -> Vec<&Tris3D> {
     if faces.len() <= 1 {
         return faces;
     }
@@ -343,7 +298,39 @@ fn closest_faces(faces: Vec<&Tris3D>, pt: Point3<f32>) -> Vec<&Tris3D> {
         .collect()
 }
 
-fn mix_colors(source: Rgba<u8>, target: &Rgba<u8>) -> Rgba<u8> {
+fn closest_face(faces: Vec<&Tris3D>, ray: Ray, _pt: Point3<f32>) -> Vec<&Tris3D> {
+    if faces.len() <= 1 {
+        return faces;
+    }
+    let mut closest: Vec<(f32, &Tris3D)> = faces
+        .into_iter()
+        .map(|f| {
+            (
+                ray.intersects_triangle(&f.v_3d[0], &f.v_3d[1], &f.v_3d[2])
+                    .distance,
+                f,
+            )
+        })
+        .collect();
+
+    closest.sort_by(|a, b| a.0.partial_cmp(&b.0).unwrap());
+    let mut range = closest[0]
+        .1
+        .v_3d
+        .iter()
+        .map(|&p| distance(&p, &closest[0].1.mid))
+        .collect::<Vec<f32>>();
+    range.sort_by(|a, b| a.partial_cmp(&b).unwrap());
+    let epsilon = range.first().unwrap() * 2.0;
+
+    closest
+        .iter()
+        .filter(|f| f.0 - closest[0].0 <= epsilon)
+        .map(|f| f.1)
+        .collect()
+}
+
+fn _mix_colors(source: Rgba<u8>, target: &Rgba<u8>) -> Rgba<u8> {
     let sr = source[0];
     let sg = source[1];
     let sb = source[2];
@@ -365,7 +352,6 @@ fn face_img_to_uv(
     face: &Tris3D,
     iso: &Isometry3<f32>,
     perspective: &Perspective3<f32>,
-    checked_pixels: &mut Vec<Vec<bool>>,
     img: &DynamicImage,
     texture: &mut RgbaImage,
     properties: &Properties,
@@ -407,28 +393,15 @@ fn face_img_to_uv(
                         if (u as u32) < (uv_width as u32) && (v as u32) < (uv_height as u32)
                             || !clip_uv
                         {
-                            let ray_origin_pt = Point3::new(
-                                iso.translation.x,
-                                iso.translation.y,
-                                iso.translation.z,
-                            );
-
                             let ray_origin_pt = iso.transform_point(
                                 &perspective.unproject_point(&Point3::new(p_cam.x, p_cam.y, -1.0)),
                             );
 
-                            let tris = Tris2D {
-                                a: face.v_3d[0],
-                                b: face.v_3d[1],
-                                c: face.v_3d[2],
-                            };
-                            //let ray_target_pt = tris.barycentric_to_cartesian(p_bary);
                             let ray_target_pt = iso.transform_point(
                                 &perspective.unproject_point(&Point3::new(p_cam.x, p_cam.y, 1.0)),
                             );
 
                             let ray = Ray::new(
-                                //ray_origin,
                                 ray_origin_pt,
                                 Vector3::new(
                                     ray_target_pt.x - ray_origin_pt.x,
@@ -438,7 +411,7 @@ fn face_img_to_uv(
                             );
 
                             let collisions =
-                                closest_faces(bvh.traverse(&ray, &faces), ray_origin_pt);
+                                closest_face(bvh.traverse(&ray, &faces), ray, ray_origin_pt);
                             let is_front = collisions.contains(&face) || collisions.len() == 0;
                             if is_front {
                                 let uv_u = match clip_uv {
@@ -452,14 +425,10 @@ fn face_img_to_uv(
 
                                 let source_color =
                                     img.get_pixel(cam_x, cam_height as u32 - cam_y - 1);
-                                //let current_color =
-                                //texture.get_pixel(uv_u, uv_height as u32 - uv_v - 1);
-                                //let target_color = source_color; //mix_colors(source_color, current_color);
 
                                 texture.put_pixel(uv_u, uv_height as u32 - uv_v - 1, source_color);
                             }
                         }
-                        //checked_pixels[cam_x as usize][cam_height as usize - cam_y as usize - 1] = true;
                     }
                 }
             }
