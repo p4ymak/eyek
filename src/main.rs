@@ -1,7 +1,6 @@
 use bvh::aabb::{Bounded, AABB};
 use bvh::bounding_hierarchy::BHShape;
 use bvh::bvh::BVH;
-use bvh::nalgebra::distance;
 use bvh::nalgebra::geometry::{Isometry3, Perspective3, Translation3, UnitQuaternion};
 use bvh::nalgebra::{Point3, Vector3};
 use bvh::ray::Ray;
@@ -56,7 +55,7 @@ impl Tris2D {
         let v0 = self.b - self.a;
         let v1 = self.c - self.a;
         let v2 = pt - self.a;
-        let den = 1.0 / (v0.x * v1.y - v1.x * v0.y);
+        let den = 1.0 / (v0.x * v1.y - v1.x * v0.y).max(f32::MIN);
         let v = (v2.x * v1.y - v1.x * v2.y) * den;
         let w = (v0.x * v2.y - v2.x * v0.y) * den;
         let u = 1.0 - v - w;
@@ -135,9 +134,14 @@ struct CameraRaw {
 }
 
 struct Properties {
+    path_data: String,
+    path_texture: String,
+    img_res_x: u32,
+    img_res_y: u32,
     clip_uv: bool,
     fill: bool,
     blending: Blending,
+    shadowing: bool,
 }
 
 fn load_meshes(path_data: &str) -> Vec<Tris3D> {
@@ -273,31 +277,6 @@ fn cast_pixels_rays(
     }
 }
 
-fn _closest_faces(faces: Vec<&Tris3D>, pt: Point3<f32>) -> Vec<&Tris3D> {
-    if faces.len() <= 1 {
-        return faces;
-    }
-    let mut closest = Vec::<(f32, &Tris3D)>::new();
-    for f in faces {
-        closest.push((distance(&f.mid, &pt), f));
-    }
-    closest.sort_by(|a, b| a.0.partial_cmp(&b.0).unwrap());
-    let mut range = closest[0]
-        .1
-        .v_3d
-        .iter()
-        .map(|&p| distance(&p, &closest[0].1.mid))
-        .collect::<Vec<f32>>();
-    range.sort_by(|a, b| a.partial_cmp(&b).unwrap());
-    let epsilon = range.first().unwrap() * 2.0;
-
-    closest
-        .iter()
-        .filter(|f| f.0 - closest[0].0 <= epsilon)
-        .map(|f| f.1)
-        .collect()
-}
-
 fn closest_faces(faces: Vec<&Tris3D>, ray: Ray, near: f32, far: f32) -> Vec<&Tris3D> {
     if faces.len() <= 1 {
         return faces;
@@ -314,8 +293,7 @@ fn closest_faces(faces: Vec<&Tris3D>, ray: Ray, near: f32, far: f32) -> Vec<&Tri
         .collect();
 
     closest.sort_by(|a, b| a.0.partial_cmp(&b.0).unwrap());
-    let epsilon = near + closest[0].0 / ((far - near).max(0.0001));
-    //println!("Epsilon {}", epsilon);
+    let epsilon = closest[0].0 / ((far - near).max(f32::MIN));
 
     closest
         .iter()
@@ -340,6 +318,15 @@ fn _mix_colors(source: Rgba<u8>, target: &Rgba<u8>) -> Rgba<u8> {
     }
 }
 
+fn repeat_bounds(x: isize, dim: f32) -> u32 {
+    let rep = x as f32 % dim;
+    if rep < 0.0 {
+        (dim + rep) as u32
+    } else {
+        rep as u32
+    }
+}
+
 fn face_img_to_uv(
     faces: &Vec<Tris3D>,
     bvh: &BVH,
@@ -353,10 +340,10 @@ fn face_img_to_uv(
     let clip_uv = properties.clip_uv;
     let uv_width = texture.dimensions().0 as f32;
     let uv_height = texture.dimensions().1 as f32;
-    let uv_min_u = (face.v_uv.bounds()[0] * uv_width).floor() as usize;
-    let uv_min_v = (face.v_uv.bounds()[1] * uv_height).floor() as usize;
-    let uv_max_u = (face.v_uv.bounds()[2] * uv_width).ceil() as usize;
-    let uv_max_v = (face.v_uv.bounds()[3] * uv_height).ceil() as usize;
+    let uv_min_u = (face.v_uv.bounds()[0] * uv_width).floor() as isize;
+    let uv_min_v = (face.v_uv.bounds()[1] * uv_height).floor() as isize;
+    let uv_max_u = (face.v_uv.bounds()[2] * uv_width).ceil() as isize;
+    let uv_max_v = (face.v_uv.bounds()[3] * uv_height).ceil() as isize;
 
     let cam_width = img.dimensions().0 as f32;
     let cam_height = img.dimensions().1 as f32;
@@ -369,6 +356,15 @@ fn face_img_to_uv(
 
     for v in uv_min_v..=uv_max_v {
         for u in uv_min_u..=uv_max_u {
+            let uv_u = match clip_uv {
+                true => u as u32,
+                false => repeat_bounds(u, uv_width),
+            };
+            let uv_v = match clip_uv {
+                true => v as u32,
+                false => repeat_bounds(v, uv_height),
+            };
+
             let p_uv = Point3::new(u as f32 / uv_width as f32, v as f32 / uv_height as f32, 0.0);
             if face.v_uv.has_point(p_uv) {
                 let p_bary = face.v_uv.cartesian_to_barycentric(p_uv);
@@ -382,45 +378,41 @@ fn face_img_to_uv(
                 {
                     let cam_x = (cam_width * (p_cam.x + 1.0) / 2.0) as u32;
                     let cam_y = (cam_height * (p_cam.y + 1.0) / 2.0) as u32;
-
                     if cam_x < cam_width as u32 && cam_y < cam_height as u32 {
-                        if (u as u32) < (uv_width as u32) && (v as u32) < (uv_height as u32)
-                            || !clip_uv
-                        {
-                            let ray_origin_pt = iso.transform_point(
-                                &perspective.unproject_point(&Point3::new(p_cam.x, p_cam.y, -1.0)),
-                            );
+                        if (uv_u as u32) < (uv_width as u32) && (uv_v as u32) < (uv_height as u32) {
+                            let face_is_visible = match properties.shadowing {
+                                true => {
+                                    let ray_origin_pt = iso.transform_point(
+                                        &perspective
+                                            .unproject_point(&Point3::new(p_cam.x, p_cam.y, -1.0)),
+                                    );
 
-                            let ray_target_pt = iso.transform_point(
-                                &perspective.unproject_point(&Point3::new(p_cam.x, p_cam.y, 1.0)),
-                            );
+                                    let ray_target_pt = iso.transform_point(
+                                        &perspective
+                                            .unproject_point(&Point3::new(p_cam.x, p_cam.y, 1.0)),
+                                    );
 
-                            let ray = Ray::new(
-                                ray_origin_pt,
-                                Vector3::new(
-                                    ray_target_pt.x - ray_origin_pt.x,
-                                    ray_target_pt.y - ray_origin_pt.y,
-                                    ray_target_pt.z - ray_origin_pt.z,
-                                ),
-                            );
+                                    let ray = Ray::new(
+                                        ray_origin_pt,
+                                        Vector3::new(
+                                            ray_target_pt.x - ray_origin_pt.x,
+                                            ray_target_pt.y - ray_origin_pt.y,
+                                            ray_target_pt.z - ray_origin_pt.z,
+                                        ),
+                                    );
 
-                            let collisions = closest_faces(
-                                bvh.traverse(&ray, &faces),
-                                ray,
-                                perspective.znear(),
-                                perspective.zfar(),
-                            );
-                            let is_front = collisions.contains(&face); // || collisions.len() == 0;
-                            if is_front {
-                                let uv_u = match clip_uv {
-                                    true => u as u32,
-                                    false => (u as f32 % uv_width) as u32,
-                                };
-                                let uv_v = match clip_uv {
-                                    true => v as u32,
-                                    false => (v as f32 % uv_height) as u32,
-                                };
+                                    let collisions = closest_faces(
+                                        bvh.traverse(&ray, &faces),
+                                        ray,
+                                        perspective.znear(),
+                                        perspective.zfar(),
+                                    );
+                                    collisions.contains(&face) || collisions.len() == 0
+                                }
+                                false => true,
+                            };
 
+                            if face_is_visible {
                                 let source_color =
                                     img.get_pixel(cam_x, cam_height as u32 - cam_y - 1);
 
@@ -562,18 +554,17 @@ fn col_len(c: &[u8; 3]) -> usize {
         as usize
 }
 
-fn main() {
-    //CLI
-    let args: Vec<_> = env::args().collect();
-    if args.len() < 8 {
+fn parse_arguments(args: Vec<String>) -> Option<Properties> {
+    if args.len() < 9 {
         println!("Arguments are insufficient. You are allowed to try again.");
-        return;
+        return None;
     }
-    let path_data = &args[1];
-    let path_texture = &args[2];
-    let img_res_x = args[3].parse::<u32>().unwrap();
-    let img_res_y = args[4].parse::<u32>().unwrap();
+
     let properties = Properties {
+        path_data: args[1].to_string(),
+        path_texture: args[2].to_string(),
+        img_res_x: args[3].parse::<u32>().unwrap(),
+        img_res_y: args[4].parse::<u32>().unwrap(),
         clip_uv: match args[5].parse::<u8>() {
             Ok(1) => true,
             _ => false,
@@ -588,13 +579,25 @@ fn main() {
             Ok(2) => Blending::Mode,
             _ => Blending::Mode,
         },
+        shadowing: match args[8].parse::<u8>() {
+            Ok(0) => false,
+            Ok(1) => true,
+            _ => false,
+        },
     };
-    println!("\nRaskrasser welcomes you! Puny humans are instructed to wait..");
 
+    return Some(properties);
+}
+
+fn main() {
+    //CLI
+    let args: Vec<_> = env::args().collect();
+    let properties = parse_arguments(args).unwrap();
+    println!("\nRaskrasser welcomes you! Puny humans are instructed to wait..");
     //Loading
-    let mut faces: Vec<Tris3D> = load_meshes(path_data);
+    let mut faces: Vec<Tris3D> = load_meshes(&properties.path_data);
     println!("OBJ loaded.");
-    let cameras = load_cameras(path_data);
+    let cameras = load_cameras(&properties.path_data);
     let bvh = BVH::build(&mut faces);
     let cam_num = cameras.len();
     let cameras_loaded = match cam_num {
@@ -607,7 +610,7 @@ fn main() {
     let textures: Vec<RgbaImage> = cameras
         .into_par_iter()
         .map(|cam| {
-            let mut texture = RgbaImage::new(img_res_x, img_res_y);
+            let mut texture = RgbaImage::new(properties.img_res_x, properties.img_res_y);
             let id = cam.id;
             cast_pixels_rays(cam, &faces, &bvh, &mut texture, &properties);
             println!("Finished cam: #{:?} / {:?}", id, cam_num);
@@ -624,6 +627,8 @@ fn main() {
     }
     //Export texture
     // mono_texture = image::imageops::flip_vertical(&mono_texture);
-    mono_texture.save(Path::new(path_texture)).unwrap();
+    mono_texture
+        .save(Path::new(&properties.path_texture))
+        .unwrap();
     println!("Texture saved!\nRaskrasser out. See you next time.");
 }
