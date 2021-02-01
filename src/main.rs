@@ -298,7 +298,7 @@ fn _closest_faces(faces: Vec<&Tris3D>, pt: Point3<f32>) -> Vec<&Tris3D> {
         .collect()
 }
 
-fn closest_face(faces: Vec<&Tris3D>, ray: Ray, _pt: Point3<f32>) -> Vec<&Tris3D> {
+fn closest_faces(faces: Vec<&Tris3D>, ray: Ray, near: f32, far: f32) -> Vec<&Tris3D> {
     if faces.len() <= 1 {
         return faces;
     }
@@ -314,14 +314,8 @@ fn closest_face(faces: Vec<&Tris3D>, ray: Ray, _pt: Point3<f32>) -> Vec<&Tris3D>
         .collect();
 
     closest.sort_by(|a, b| a.0.partial_cmp(&b.0).unwrap());
-    let mut range = closest[0]
-        .1
-        .v_3d
-        .iter()
-        .map(|&p| distance(&p, &closest[0].1.mid))
-        .collect::<Vec<f32>>();
-    range.sort_by(|a, b| a.partial_cmp(&b).unwrap());
-    let epsilon = range.first().unwrap() * 2.0;
+    let epsilon = near + closest[0].0 / ((far - near).max(0.0001));
+    //println!("Epsilon {}", epsilon);
 
     closest
         .iter()
@@ -410,9 +404,13 @@ fn face_img_to_uv(
                                 ),
                             );
 
-                            let collisions =
-                                closest_face(bvh.traverse(&ray, &faces), ray, ray_origin_pt);
-                            let is_front = collisions.contains(&face) || collisions.len() == 0;
+                            let collisions = closest_faces(
+                                bvh.traverse(&ray, &faces),
+                                ray,
+                                perspective.znear(),
+                                perspective.zfar(),
+                            );
+                            let is_front = collisions.contains(&face); // || collisions.len() == 0;
                             if is_front {
                                 let uv_u = match clip_uv {
                                     true => u as u32,
