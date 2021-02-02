@@ -449,15 +449,16 @@ fn blend_pixel_with_neigbhours(texture: &RgbaImage, x: u32, y: u32) -> Rgba<u8> 
     let mut b = 0 as u32;
     let mut a = 0 as u8;
     for way in ways.iter() {
-        let col = texture.get_pixel(
-            ((x as i32 + way[0] % bx) as u32).min(bx as u32 - 1),
-            ((y as i32 + way[1] % by) as u32).min(by as u32 - 1),
-        );
-        if col[3] != 0 {
-            neibs_count += 1;
-            r += col[0] as u32;
-            g += col[1] as u32;
-            b += col[2] as u32;
+        let xp = x as i32 + way[0];
+        let yp = y as i32 + way[1];
+        if xp >= 0 && xp < bx && yp >= 0 && yp < by {
+            let col = texture.get_pixel(xp as u32, yp as u32);
+            if col[3] != 0 {
+                neibs_count += 1;
+                r += col[0] as u32;
+                g += col[1] as u32;
+                b += col[2] as u32;
+            }
         }
     }
     if neibs_count != 0 {
