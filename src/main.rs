@@ -293,11 +293,12 @@ fn closest_faces(faces: Vec<&Tris3D>, ray: Ray, near: f32, far: f32) -> Vec<&Tri
         .collect();
 
     closest.sort_by(|a, b| a.0.partial_cmp(&b.0).unwrap());
-    let epsilon = closest[0].0 / ((far - near).max(f32::MIN));
+    let dist_to_first = closest[0].0;
+    let epsilon = near + dist_to_first / ((far - near).max(f32::MIN));
 
     closest
         .iter()
-        .filter(|f| f.0 - closest[0].0 <= epsilon)
+        .filter(|f| (f.0 - dist_to_first).abs() <= epsilon)
         .map(|f| f.1)
         .collect()
 }
