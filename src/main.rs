@@ -21,7 +21,6 @@ struct Tris2D {
     c: Point3<f32>,
 }
 impl Tris2D {
-    /*
     fn has_point(&self, pt: Point3<f32>) -> bool {
         fn sign(a: Point3<f32>, b: Point3<f32>, c: Point3<f32>) -> f32 {
             (a.x - c.x) * (b.y - c.y) - (b.x - c.x) * (a.y - c.y)
@@ -33,17 +32,17 @@ impl Tris2D {
         let has_pos = (d1 > 0.0) || (d2 > 0.0) || (d3 > 0.0);
         !(has_neg && has_pos)
     }
+    /*
+        fn has_point(&self, pt: Point3<f32>) -> bool {
+            let bary = self.cartesian_to_barycentric(pt);
+            bary.x >= 0.0
+                && bary.x <= 1.0
+                && bary.y >= 0.0
+                && bary.z <= 1.0
+                && bary.z >= 0.0
+                && bary.z <= 1.0
+        }
     */
-    fn has_point(&self, pt: Point3<f32>) -> bool {
-        let bary = self.cartesian_to_barycentric(pt);
-        bary.x >= 0.0
-            && bary.x <= 1.0
-            && bary.y >= 0.0
-            && bary.z <= 1.0
-            && bary.z >= 0.0
-            && bary.z <= 1.0
-    }
-
     fn bounds(&self) -> [f32; 4] {
         let mut coords_x = [self.a.x, self.b.x, self.c.x];
         let mut coords_y = [self.a.y, self.b.y, self.c.y];
@@ -383,11 +382,15 @@ fn face_img_to_uv(
                         if (uv_u as u32) < (uv_width as u32) && (uv_v as u32) < (uv_height as u32) {
                             let face_is_visible = match properties.shadowing {
                                 true => {
-                                    let ray_origin_pt = iso.transform_point(
-                                        &perspective
-                                            .unproject_point(&Point3::new(p_cam.x, p_cam.y, -1.0)),
+                                    // let ray_origin_pt = iso.transform_point(
+                                    //     &perspective
+                                    //         .unproject_point(&Point3::new(p_cam.x, p_cam.y, -1.0)),
+                                    // );
+                                    let ray_origin_pt = Point3::new(
+                                        iso.translation.x,
+                                        iso.translation.y,
+                                        iso.translation.z,
                                     );
-
                                     let ray_target_pt = iso.transform_point(
                                         &perspective
                                             .unproject_point(&Point3::new(p_cam.x, p_cam.y, 1.0)),
@@ -444,7 +447,7 @@ fn blend_pixel_with_neigbhours(texture: &RgbaImage, x: u32, y: u32) -> Rgba<u8> 
     let mut r = 0 as u32;
     let mut g = 0 as u32;
     let mut b = 0 as u32;
-
+    let mut a = 0 as u8;
     for way in ways.iter() {
         let col = texture.get_pixel(
             ((x as i32 + way[0] % bx) as u32).min(bx as u32 - 1),
@@ -461,8 +464,9 @@ fn blend_pixel_with_neigbhours(texture: &RgbaImage, x: u32, y: u32) -> Rgba<u8> 
         r /= neibs_count;
         g /= neibs_count;
         b /= neibs_count;
+        a = 255;
     }
-    Rgba([r as u8, g as u8, b as u8, 255])
+    Rgba([r as u8, g as u8, b as u8, a])
 }
 
 enum Blending {
@@ -533,6 +537,25 @@ fn combine_layers(textures: Vec<RgbaImage>, blending: Blending) -> RgbaImage {
         }
     }
     mono_texture
+}
+
+fn expand_pixels(texture: &mut RgbaImage) {
+    let (width, height) = texture.dimensions();
+    let mut future_pixels = Vec::<(u32, u32, Rgba<u8>)>::new();
+    for v in 0..(height as usize) {
+        for u in 0..(width as usize) {
+            let current_color = *texture.get_pixel(u as u32, v as u32);
+            if current_color[3] == 0 {
+                let blended_color = blend_pixel_with_neigbhours(&texture, u as u32, v as u32);
+                if blended_color[3] != 0 {
+                    future_pixels.push((u as u32, v as u32, blended_color));
+                }
+            }
+        }
+    }
+    for p in future_pixels {
+        texture.put_pixel(p.0, p.1, p.2);
+    }
 }
 
 fn fill_empty_pixels(texture: &mut RgbaImage) {
@@ -621,6 +644,10 @@ fn main() {
 
     //Combining images
     let mut mono_texture = combine_layers(textures, properties.blending);
+
+    //Expanding pixels outside poligons edges
+    expand_pixels(&mut mono_texture);
+
     //Filling transparent pixels
     if properties.fill {
         fill_empty_pixels(&mut mono_texture);
