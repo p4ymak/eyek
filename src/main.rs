@@ -141,6 +141,7 @@ struct Properties {
     fill: bool,
     blending: Blending,
     shadowing: bool,
+    expanses: u8,
 }
 
 fn load_meshes(path_data: &str) -> Vec<Tris3D> {
@@ -580,7 +581,7 @@ fn col_len(c: &[u8; 3]) -> usize {
 }
 
 fn parse_arguments(args: Vec<String>) -> Option<Properties> {
-    if args.len() < 9 {
+    if args.len() < 10 {
         println!("Arguments are insufficient. You are allowed to try again.");
         return None;
     }
@@ -608,6 +609,10 @@ fn parse_arguments(args: Vec<String>) -> Option<Properties> {
             Ok(0) => false,
             Ok(1) => true,
             _ => false,
+        },
+        expanses: match args[9].parse::<u8>() {
+            Ok(n) => n,
+            _ => 0,
         },
     };
 
@@ -646,16 +651,17 @@ fn main() {
     //Combining images
     let mut mono_texture = combine_layers(textures, properties.blending);
 
-    //Expanding pixels outside poligons edges
-    expand_pixels(&mut mono_texture);
-
+    //Color empty pixels around polygons edges
+    for _ in 0..properties.expanses {
+        expand_pixels(&mut mono_texture);
+    }
     //Filling transparent pixels
     if properties.fill {
         fill_empty_pixels(&mut mono_texture);
         println!("Filled empty pixels");
     }
+
     //Export texture
-    // mono_texture = image::imageops::flip_vertical(&mono_texture);
     mono_texture
         .save(Path::new(&properties.path_texture))
         .unwrap();
