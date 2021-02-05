@@ -138,7 +138,6 @@ struct Properties {
     img_res_x: u32,
     img_res_y: u32,
     clip_uv: bool,
-    fill: bool,
     blending: Blending,
     shadowing: bool,
     expanses: u8,
@@ -383,10 +382,12 @@ fn face_img_to_uv(
                         if (uv_u as u32) < (uv_width as u32) && (uv_v as u32) < (uv_height as u32) {
                             let face_is_visible = match properties.shadowing {
                                 true => {
-                                    // let ray_origin_pt = iso.transform_point(
-                                    //     &perspective
-                                    //         .unproject_point(&Point3::new(p_cam.x, p_cam.y, -1.0)),
-                                    // );
+                                    /*
+                                    let ray_origin_pt = iso.transform_point(
+                                         &perspective
+                                             .unproject_point(&Point3::new(p_cam.x, p_cam.y, -1.0)),
+                                     );
+                                    */
                                     let ray_origin_pt = Point3::new(
                                         iso.translation.x,
                                         iso.translation.y,
@@ -560,7 +561,8 @@ fn expand_pixels(texture: &mut RgbaImage) {
     }
 }
 
-fn fill_empty_pixels(texture: &mut RgbaImage) {
+/*
+fn _fill_empty_pixels(texture: &mut RgbaImage) {
     let (width, height) = texture.dimensions();
     for v in (0..(height as usize)).rev() {
         for u in 0..(width as usize) {
@@ -574,6 +576,7 @@ fn fill_empty_pixels(texture: &mut RgbaImage) {
         }
     }
 }
+*/
 
 fn col_len(c: &[u8; 3]) -> usize {
     (((c[0] as usize).pow(2) + (c[1] as usize).pow(2) + (c[2] as usize).pow(2)) as f32).sqrt()
@@ -581,8 +584,8 @@ fn col_len(c: &[u8; 3]) -> usize {
 }
 
 fn parse_arguments(args: Vec<String>) -> Option<Properties> {
-    if args.len() < 10 {
-        println!("Arguments are insufficient. You are allowed to try again.");
+    if args.len() < 9 {
+        println!("Arguments are insufficient.");
         return None;
     }
 
@@ -595,22 +598,18 @@ fn parse_arguments(args: Vec<String>) -> Option<Properties> {
             Ok(1) => true,
             _ => false,
         },
-        fill: match args[6].parse::<u8>() {
-            Ok(1) => true,
-            _ => false,
-        },
-        blending: match args[7].parse::<u8>() {
+        blending: match args[6].parse::<u8>() {
             Ok(0) => Blending::Average,
             Ok(1) => Blending::Median,
             Ok(2) => Blending::Mode,
             _ => Blending::Mode,
         },
-        shadowing: match args[8].parse::<u8>() {
+        shadowing: match args[7].parse::<u8>() {
             Ok(0) => false,
             Ok(1) => true,
             _ => false,
         },
-        expanses: match args[9].parse::<u8>() {
+        expanses: match args[8].parse::<u8>() {
             Ok(n) => n,
             _ => 0,
         },
@@ -621,9 +620,15 @@ fn parse_arguments(args: Vec<String>) -> Option<Properties> {
 
 fn main() {
     //CLI
+    println!("\nRaskraser welcomes you!");
     let args: Vec<_> = env::args().collect();
-    let properties = parse_arguments(args).unwrap();
-    println!("\nRaskraser welcomes you! Puny humans are instructed to wait..");
+    let properties = match parse_arguments(args) {
+        Some(props) => props,
+        None => {
+            println!("Can't parse arguments.\nRaskraser out.");
+            return;
+        }
+    };
     //Loading
     let mut faces: Vec<Tris3D> = load_meshes(&properties.path_data);
     println!("OBJ loaded.");
@@ -635,7 +640,7 @@ fn main() {
         _ => format!("{:?} cameras loaded.", cam_num),
     };
     println!("{}", cameras_loaded);
-
+    println!("Puny humans are instructed to wait.");
     //Parallel execution
     let textures: Vec<RgbaImage> = cameras
         .into_par_iter()
@@ -655,11 +660,14 @@ fn main() {
     for _ in 0..properties.expanses {
         expand_pixels(&mut mono_texture);
     }
+
     //Filling transparent pixels
-    if properties.fill {
-        fill_empty_pixels(&mut mono_texture);
-        println!("Filled empty pixels");
-    }
+    /*
+        if properties.fill {
+            fill_empty_pixels(&mut mono_texture);
+            println!("Filled empty pixels");
+        }
+    */
 
     //Export texture
     mono_texture
