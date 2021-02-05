@@ -623,7 +623,7 @@ fn main() {
     //CLI
     let args: Vec<_> = env::args().collect();
     let properties = parse_arguments(args).unwrap();
-    println!("\nRaskrasser welcomes you! Puny humans are instructed to wait..");
+    println!("\nRaskraser welcomes you! Puny humans are instructed to wait..");
     //Loading
     let mut faces: Vec<Tris3D> = load_meshes(&properties.path_data);
     println!("OBJ loaded.");
@@ -665,5 +665,5 @@ fn main() {
     mono_texture
         .save(Path::new(&properties.path_texture))
         .unwrap();
-    println!("Texture saved!\nRaskrasser out. See you next time.");
+    println!("Texture saved!\nRaskraser out. See you next time.");
 }
