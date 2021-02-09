@@ -180,6 +180,20 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "e78d4f1cc4ae33bbfc157ed5d5a5ef3bc29227303d595861deb238fcec4e9457"
 
 [[package]]
+name = "eyek"
+version = "0.2.0"
+dependencies = [
+ "bvh",
+ "image",
+ "nalgebra 0.18.1",
+ "obj",
+ "rayon",
+ "serde",
+ "serde_derive",
+ "serde_json",
+]
+
+[[package]]
 name = "fuchsia-cprng"
 version = "0.1.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -662,20 +676,6 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "cbf7e9e623549b0e21f6e97cf8ecf247c1a8fd2e8a992ae265314300b2455d5c"
 dependencies = [
  "rand_core 0.3.1",
-]
-
-[[package]]
-name = "raskraser"
-version = "0.2.0"
-dependencies = [
- "bvh",
- "image",
- "nalgebra 0.18.1",
- "obj",
- "rayon",
- "serde",
- "serde_derive",
- "serde_json",
 ]
 
 [[package]]
