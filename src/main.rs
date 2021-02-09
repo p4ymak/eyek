@@ -620,12 +620,12 @@ fn parse_arguments(args: Vec<String>) -> Option<Properties> {
 
 fn main() {
     //CLI
-    println!("\nRaskraser welcomes you!");
+    println!("\nEyek welcomes you!");
     let args: Vec<_> = env::args().collect();
     let properties = match parse_arguments(args) {
         Some(props) => props,
         None => {
-            println!("Can't parse arguments.\nRaskraser out.");
+            println!("Can't parse arguments.\nEyek out.");
             return;
         }
     };
@@ -673,5 +673,5 @@ fn main() {
     mono_texture
         .save(Path::new(&properties.path_texture))
         .unwrap();
-    println!("Texture saved!\nRaskraser out. See you next time.");
+    println!("Texture saved!\nEyek out. See you next time.");
 }
