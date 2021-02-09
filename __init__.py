@@ -14,12 +14,12 @@ if sys.platform == "win32":
     _EXECUTABLE_NAME += ".exe"
 
 bl_info = {
-    "name": "eyek",
+    "name": "Eyek",
     "description": "Project images from multiple cameras to one UV.",
     "author": "Roman Chumak",
     "version": (0, 0, 2, 0),
     "blender": (2, 90, 1),
-    "location": "Properties / Object",
+    "location": "View3D",
     "category": "Object"}
 
 
@@ -35,7 +35,7 @@ class EYEK_Properties(bpy.types.PropertyGroup):
                                     ('2', 'Mode', '', 2)
                                     ], description="Method for blending colors between different projections.")
     shadowing: bpy.props.BoolProperty(default=True, description="Allow polygons shade each other. Otherwise, the projection goes through.")
-    expansions: bpy.props.IntProperty(default=1, min =0, max=255, description="Color empty pixels around polygons edges")
+    expansions: bpy.props.IntProperty(default=1, min =0, max=255, description="Color empty pixels around UV islands.")
 
 
 class EYEK_exe(bpy.types.Operator):
@@ -158,9 +158,10 @@ class EYEK_exe(bpy.types.Operator):
 class EYEK_PT_Panel(bpy.types.Panel):
     bl_label = "Eyek"
     bl_idname = "EYEK_PT_Panel"
-    bl_space_type = 'PROPERTIES'
-    bl_region_type = 'WINDOW'
-    bl_context = "object"
+    bl_space_type = "VIEW_3D"
+    bl_region_type = "UI"
+    bl_category = "Eyek"
+    #bl_context = "object"
 
 
     def draw(self, context):
@@ -180,13 +181,15 @@ class EYEK_PT_Panel(bpy.types.Panel):
         right_col.prop(context.scene.eyek, 'clip_uv', text="Clip UV")
         right_col.prop(context.scene.eyek, 'shadowing', text="Shadowing")
         right_col.separator()
-        right_col.prop(context.scene.eyek, 'expansions', text="Expansions")
+        right_col.prop(context.scene.eyek, 'expansions', text="Expand")
 
         eyek_ui.separator()
         eyek_ui.label(text="Output:")
         eyek_ui.prop(context.scene.eyek, 'path_export_image', text="")
-        eyek_ui.operator('eyek.exe', icon="BRUSH_DATA")
-
+        if bpy.context.object!=None and bpy.context.object.type == 'MESH' and bpy.context.object.mode=='OBJECT':
+                eyek_ui.operator('eyek.exe', icon="BRUSH_DATA")
+        else:
+            eyek_ui.label(text="Return to Object Mode.")
 
 def register():
     bpy.utils.register_class(EYEK_Properties)
