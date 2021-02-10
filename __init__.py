@@ -187,7 +187,10 @@ class EYEK_PT_Panel(bpy.types.Panel):
         eyek_ui.label(text="Output:")
         eyek_ui.prop(context.scene.eyek, 'path_export_image', text="")
         if bpy.context.object!=None and bpy.context.object.type == 'MESH' and bpy.context.object.mode=='OBJECT':
+            if bpy.data.is_saved:
                 eyek_ui.operator('eyek.exe', icon="BRUSH_DATA")
+            else:
+                eyek_ui.label(text="Save your Scene first.")
         else:
             eyek_ui.label(text="Return to Object Mode.")
 
