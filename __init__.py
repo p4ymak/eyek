@@ -4,23 +4,25 @@ import mathutils
 from math import radians, atan, tan
 from bpy_extras.io_utils import axis_conversion
 import os
-import sys
+import platform
 import subprocess
 import time
 
 _EXECUTABLE_NAME = "eyek"
 
-if sys.platform == "win32":
+if platform.system() == "Windows":
     _EXECUTABLE_NAME += ".exe"
+if platform.system() == "Darwin":
+    _EXECUTABLE_NAME += "_mac"
 
 bl_info = {
     "name": "Eyek",
-    "description": "Project images from multiple cameras to one UV.",
+    "description": "Texturing by projection mapping from multiple cameras to one UV layer.",
     "author": "Roman Chumak",
     "version": (0, 0, 2, 0),
     "blender": (2, 90, 1),
     "location": "View3D",
-    "category": "Object"}
+    "category": "Texturing"}
 
 
 class EYEK_Properties(bpy.types.PropertyGroup):
@@ -199,7 +201,7 @@ def register():
     bpy.types.Scene.eyek = bpy.props.PointerProperty(type=EYEK_Properties)
     bpy.utils.register_class(EYEK_exe)
     bpy.utils.register_class(EYEK_PT_Panel)
-    if sys.platform != "win32":
+    if platform.system() != "Windows":
         os.chmod(os.path.join(os.path.dirname(
             os.path.realpath(__file__)), _EXECUTABLE_NAME), 7770)    
 
