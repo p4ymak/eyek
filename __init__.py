@@ -19,6 +19,7 @@ bl_info = {
     "name": "Eyek",
     "description": "Texturing by projection mapping from multiple cameras to one UV layer.",
     "author": "Roman Chumak",
+    "doc_url": "https://phygitalism.com/en/eyek/",
     "version": (0, 0, 2, 0),
     "blender": (2, 90, 1),
     "location": "View3D",
