@@ -52,7 +52,7 @@ class EYEK_exe(bpy.types.Operator):
         cameras = []
 
         scene_dir = directory = os.path.dirname(bpy.data.filepath)
-        eyek_root_dir = os.path.join(scene_dir, "eyek")
+        eyek_root_dir = os.path.join(scene_dir, "eyek_cache")
         eyek_dir = os.path.join(eyek_root_dir, str(time.time_ns()))
         selected = bpy.context.selected_objects
         global_matrix = axis_conversion(from_forward='Y', from_up='Z', to_forward='-Z', to_up='Y').to_4x4()
@@ -92,7 +92,16 @@ class EYEK_exe(bpy.types.Operator):
                             "image_path": image_path,
                             }
                 cameras_data.append(cam_data)
+
+                render = bpy.context.scene.render
+                render_ratio = render.resolution_x / render.resolution_y
+                img_ratio = cam_image.size[0] / cam_image.size[1]
+                if render_ratio >= img_ratio:
+                	cam.data.background_images[0].frame_method = 'CROP'
+                else:
+                	cam.data.background_images[0].frame_method = 'FIT'
                 
+
             json_file_path = os.path.join(eyek_dir, "cameras.json")
             with open(json_file_path, 'w') as outfile:
                 json.dump({"data": cameras_data}, outfile)
