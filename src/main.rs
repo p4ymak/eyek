@@ -1,10 +1,5 @@
-use bvh::aabb::{Bounded, AABB};
-use bvh::bounding_hierarchy::BHShape;
-use bvh::bvh::BVH;
-use bvh::nalgebra::geometry::{Isometry3, Perspective3, Translation3, UnitQuaternion};
-use bvh::nalgebra::{Point3, Vector3};
-use bvh::ray::Ray;
 use image::{DynamicImage, GenericImageView, Rgba, RgbaImage};
+use nalgebra::geometry::{Isometry3, Perspective3, Point3, Translation3, UnitQuaternion};
 use obj;
 use rayon::prelude::*;
 use serde_derive::Deserialize;
@@ -13,84 +8,46 @@ use std::collections::HashMap;
 use std::env;
 use std::fs;
 use std::path::Path;
+use triangle::{Point, Triangle};
 
-#[derive(Debug, Clone)]
-struct Tris2D {
-    a: Point3<f32>,
-    b: Point3<f32>,
-    c: Point3<f32>,
+fn point3_to_point(pt: Point3<f64>) -> Point {
+    Point {
+        x: pt.coords.x,
+        y: pt.coords.y,
+        z: pt.coords.z,
+    }
 }
-impl Tris2D {
-    fn has_point(&self, pt: Point3<f32>) -> bool {
-        fn sign(a: Point3<f32>, b: Point3<f32>, c: Point3<f32>) -> f32 {
-            (a.x - c.x) * (b.y - c.y) - (b.x - c.x) * (a.y - c.y)
-        }
-        let d1 = sign(pt, self.a, self.b);
-        let d2 = sign(pt, self.b, self.c);
-        let d3 = sign(pt, self.c, self.a);
-        let has_neg = (d1 < 0.0) || (d2 < 0.0) || (d3 < 0.0);
-        let has_pos = (d1 > 0.0) || (d2 > 0.0) || (d3 > 0.0);
-        !(has_neg && has_pos)
-    }
-    /*
-        fn has_point(&self, pt: Point3<f32>) -> bool {
-            let bary = self.cartesian_to_barycentric(pt);
-            bary.x >= 0.0
-                && bary.x <= 1.0
-                && bary.y >= 0.0
-                && bary.z <= 1.0
-                && bary.z >= 0.0
-                && bary.z <= 1.0
-        }
-    */
-    fn bounds(&self) -> [f32; 4] {
-        let mut coords_x = [self.a.x, self.b.x, self.c.x];
-        let mut coords_y = [self.a.y, self.b.y, self.c.y];
-        coords_x.sort_by(|i, j| i.partial_cmp(j).unwrap());
-        coords_y.sort_by(|i, j| i.partial_cmp(j).unwrap());
-        [coords_x[0], coords_y[0], coords_x[2], coords_y[2]]
-    }
-    fn cartesian_to_barycentric(&self, pt: Point3<f32>) -> Point3<f32> {
-        let v0 = self.b - self.a;
-        let v1 = self.c - self.a;
-        let v2 = pt - self.a;
-        let den = 1.0 / (v0.x * v1.y - v1.x * v0.y).max(f32::MIN);
-        let v = (v2.x * v1.y - v1.x * v2.y) * den;
-        let w = (v0.x * v2.y - v2.x * v0.y) * den;
-        let u = 1.0 - v - w;
-        Point3::new(u, v, w)
-    }
-    fn barycentric_to_cartesian(&self, pt: Point3<f32>) -> Point3<f32> {
-        let x = pt.x * self.a.x + pt.y * self.b.x + pt.z * self.c.x;
-        let y = pt.x * self.a.y + pt.y * self.b.y + pt.z * self.c.y;
-        let z = pt.x * self.a.z + pt.y * self.b.z + pt.z * self.c.z;
-        Point3::new(x, y, z)
-    }
+fn point_to_point3(pt: Point) -> Point3<f64> {
+    Point3::new(pt.x, pt.y, pt.z)
+}
+
+fn project_point_to_cam(pt: Point, iso: &Isometry3<f64>, perspective: &Perspective3<f64>) -> Point {
+    point3_to_point(perspective.project_point(&iso.inverse_transform_point(&point_to_point3(pt))))
 }
 
 #[derive(Debug, Clone)]
 struct Tris3D {
-    v_3d: [Point3<f32>; 3],
-    v_uv: Tris2D,
-    min: Point3<f32>,
-    mid: Point3<f32>,
-    max: Point3<f32>,
+    v_3d: Triangle,
+    v_uv: Triangle,
+    min: Point,
+    mid: Point,
+    max: Point,
     node_index: usize,
 }
-impl Bounded for Tris3D {
-    fn aabb(&self) -> AABB {
-        AABB::with_bounds(self.min, self.max)
-    }
-}
-impl BHShape for Tris3D {
-    fn set_bh_node_index(&mut self, index: usize) {
-        self.node_index = index;
-    }
+// impl Bounded for Tris3D {
+//     fn aabb(&self) -> AABB {
+//         AABB::with_bounds(self.min, self.max)
+//     }
+// }
+// impl BHShape for Tris3D {
+//     fn set_bh_node_index(&mut self, index: usize) {
+//         self.node_index = index;
+//     }
 
-    fn bh_node_index(&self) -> usize {
-        self.node_index
-    }
-}
+//     fn bh_node_index(&self) -> usize {
+//         self.node_index
+//     }
+// }
 impl PartialEq for Tris3D {
     fn eq(&self, other: &Self) -> bool {
         self.node_index == other.node_index
@@ -104,9 +61,9 @@ struct Mesh {
 
 #[derive(Debug, Deserialize)]
 struct Coords {
-    x: f32,
-    y: f32,
-    z: f32,
+    x: f64,
+    y: f64,
+    z: f64,
 }
 #[derive(Debug, Deserialize)]
 struct VecCameraJSON {
@@ -116,19 +73,19 @@ struct VecCameraJSON {
 struct CameraJSON {
     location: Coords,
     rotation_euler: Coords,
-    fov_x: f32,
-    limit_near: f32,
-    limit_far: f32,
+    fov_x: f64,
+    limit_near: f64,
+    limit_far: f64,
     image_path: String,
 }
 #[derive(Debug)]
 struct CameraRaw {
     id: usize,
-    pos: [f32; 3],
-    rot: UnitQuaternion<f32>,
-    fov_x: f32,
-    limit_near: f32,
-    limit_far: f32,
+    pos: [f64; 3],
+    rot: UnitQuaternion<f64>,
+    fov_x: f64,
+    limit_near: f64,
+    limit_far: f64,
     image_path: String,
 }
 
@@ -152,19 +109,19 @@ fn load_meshes(path_data: &str) -> Vec<Tris3D> {
     for obj in data.objects {
         for group in obj.groups {
             for poly in group.polys {
-                let mut tr_min_x = f32::MAX;
-                let mut tr_max_x = f32::MIN;
-                let mut tr_min_y = f32::MAX;
-                let mut tr_max_y = f32::MIN;
-                let mut tr_min_z = f32::MAX;
-                let mut tr_max_z = f32::MIN;
-                let mut vs_pos = Vec::<Point3<f32>>::new();
-                let mut vs_uv = Vec::<Point3<f32>>::new();
+                let mut tr_min_x = f64::MAX;
+                let mut tr_max_x = f64::MIN;
+                let mut tr_min_y = f64::MAX;
+                let mut tr_max_y = f64::MIN;
+                let mut tr_min_z = f64::MAX;
+                let mut tr_max_z = f64::MIN;
+                let mut vs_pos = Vec::<Point>::new();
+                let mut vs_uv = Vec::<Point>::new();
 
                 for vert in poly.0 {
-                    let x = data.position[vert.0][0];
-                    let y = data.position[vert.0][1];
-                    let z = data.position[vert.0][2];
+                    let x = data.position[vert.0][0] as f64;
+                    let y = data.position[vert.0][1] as f64;
+                    let z = data.position[vert.0][2] as f64;
                     let uv = match vert.1 {
                         Some(i) => match data.texture.get(i) {
                             Some(uv) => uv,
@@ -173,10 +130,10 @@ fn load_meshes(path_data: &str) -> Vec<Tris3D> {
                         _ => continue,
                     };
 
-                    let u = uv[0];
-                    let v = uv[1];
-                    vs_pos.push(Point3::new(x, y, z));
-                    vs_uv.push(Point3::new(u, v, 0.0));
+                    let u = uv[0] as f64;
+                    let v = uv[1] as f64;
+                    vs_pos.push(Point { x: x, y: y, z: z });
+                    vs_uv.push(Point { x: u, y: v, z: 0.0 });
 
                     tr_min_x = tr_min_x.min(x);
                     tr_max_x = tr_max_x.max(x);
@@ -191,15 +148,31 @@ fn load_meshes(path_data: &str) -> Vec<Tris3D> {
                     let tr_mid_y = (tr_min_y + tr_max_y) / 2.0;
                     let tr_mid_z = (tr_min_z + tr_max_z) / 2.0;
                     tris.push(Tris3D {
-                        v_3d: [vs_pos[0], vs_pos[1], vs_pos[2]],
-                        v_uv: Tris2D {
+                        v_3d: Triangle {
+                            a: vs_pos[0],
+                            b: vs_pos[1],
+                            c: vs_pos[2],
+                        },
+                        v_uv: Triangle {
                             a: vs_uv[0],
                             b: vs_uv[1],
                             c: vs_uv[2],
                         },
-                        min: Point3::new(tr_min_x, tr_min_y, tr_min_z),
-                        mid: Point3::new(tr_mid_x, tr_mid_y, tr_mid_z),
-                        max: Point3::new(tr_max_x, tr_max_y, tr_max_z),
+                        min: Point {
+                            x: tr_min_x,
+                            y: tr_min_y,
+                            z: tr_min_z,
+                        },
+                        mid: Point {
+                            x: tr_mid_x,
+                            y: tr_mid_y,
+                            z: tr_mid_z,
+                        },
+                        max: Point {
+                            x: tr_max_x,
+                            y: tr_max_y,
+                            z: tr_max_z,
+                        },
                         node_index: tris_id,
                     });
                     tris_id += 1;
@@ -245,14 +218,13 @@ fn load_cameras(path_data: &str) -> Vec<CameraRaw> {
 fn cast_pixels_rays(
     camera_raw: CameraRaw,
     faces: &Vec<Tris3D>,
-    bvh: &BVH,
     mut texture: &mut RgbaImage,
     properties: &Properties,
 ) {
     let img = image::open(camera_raw.image_path).unwrap();
     let width = img.dimensions().0 as usize;
     let height = img.dimensions().1 as usize;
-    let ratio = width as f32 / height as f32;
+    let ratio = width as f64 / height as f64;
     let fov_y = 2.0 * ((camera_raw.fov_x / 2.0).tan() / ratio).atan();
     let limit_near = camera_raw.limit_near;
     let limit_far = camera_raw.limit_far;
@@ -265,7 +237,6 @@ fn cast_pixels_rays(
     for face in faces {
         face_img_to_uv(
             faces,
-            bvh,
             &face,
             &iso,
             &perspective,
@@ -276,28 +247,29 @@ fn cast_pixels_rays(
     }
 }
 
-fn closest_faces(faces: Vec<&Tris3D>, ray: Ray, near: f32, far: f32) -> Vec<&Tris3D> {
+fn closest_faces(
+    faces: &Vec<Tris3D>,
+    ray_orig: Point,
+    ray_dir: Point,
+    near: f64,
+    far: f64,
+) -> Vec<&Tris3D> {
     if faces.len() <= 1 {
-        return faces;
+        return vec![&faces[0]];
     }
-    let mut closest: Vec<(f32, &Tris3D)> = faces
+    let mut closest: Vec<(Option<f64>, &Tris3D)> = faces
         .into_iter()
-        .map(|f| {
-            (
-                ray.intersects_triangle(&f.v_3d[0], &f.v_3d[1], &f.v_3d[2])
-                    .distance,
-                f,
-            )
-        })
+        .map(|f| (f.v_3d.ray_intersection(&ray_orig, &ray_dir), f))
+        .filter(|h| h.0 != None)
         .collect();
 
     closest.sort_by(|a, b| a.0.partial_cmp(&b.0).unwrap());
-    let dist_to_first = closest[0].0;
-    let epsilon = near + dist_to_first / ((far - near).max(f32::MIN));
+    let dist_to_first = closest[0].0.unwrap();
+    let epsilon = near + dist_to_first / ((far - near).max(f64::MIN));
 
     closest
         .iter()
-        .filter(|f| (f.0 - dist_to_first).abs() <= epsilon)
+        .filter(|f| (f.0.unwrap() - dist_to_first).abs() <= epsilon)
         .map(|f| f.1)
         .collect()
 }
@@ -318,8 +290,8 @@ fn _mix_colors(source: Rgba<u8>, target: &Rgba<u8>) -> Rgba<u8> {
     }
 }
 
-fn repeat_bounds(x: isize, dim: f32) -> u32 {
-    let rep = x as f32 % dim;
+fn repeat_bounds(x: isize, dim: f64) -> u32 {
+    let rep = x as f64 % dim;
     if rep < 0.0 {
         (dim + rep) as u32
     } else {
@@ -329,29 +301,29 @@ fn repeat_bounds(x: isize, dim: f32) -> u32 {
 
 fn face_img_to_uv(
     faces: &Vec<Tris3D>,
-    bvh: &BVH,
     face: &Tris3D,
-    iso: &Isometry3<f32>,
-    perspective: &Perspective3<f32>,
+    iso: &Isometry3<f64>,
+    perspective: &Perspective3<f64>,
     img: &DynamicImage,
     texture: &mut RgbaImage,
     properties: &Properties,
 ) {
     let clip_uv = properties.clip_uv;
-    let uv_width = texture.dimensions().0 as f32;
-    let uv_height = texture.dimensions().1 as f32;
-    let uv_min_u = (face.v_uv.bounds()[0] * uv_width).floor() as isize;
-    let uv_min_v = (face.v_uv.bounds()[1] * uv_height).floor() as isize;
-    let uv_max_u = (face.v_uv.bounds()[2] * uv_width).ceil() as isize;
-    let uv_max_v = (face.v_uv.bounds()[3] * uv_height).ceil() as isize;
+    let uv_width = texture.dimensions().0 as f64;
+    let uv_height = texture.dimensions().1 as f64;
+    let tris_bounds = face.v_uv.aabb();
+    let uv_min_u = (tris_bounds[0].x * uv_width).floor() as isize;
+    let uv_min_v = (tris_bounds[0].y * uv_height).floor() as isize;
+    let uv_max_u = (tris_bounds[1].x * uv_width).ceil() as isize;
+    let uv_max_v = (tris_bounds[1].y * uv_height).ceil() as isize;
 
-    let cam_width = img.dimensions().0 as f32;
-    let cam_height = img.dimensions().1 as f32;
+    let cam_width = img.dimensions().0 as f64;
+    let cam_height = img.dimensions().1 as f64;
 
-    let face_cam = Tris2D {
-        a: perspective.project_point(&iso.inverse_transform_point(&face.v_3d[0])),
-        b: perspective.project_point(&iso.inverse_transform_point(&face.v_3d[1])),
-        c: perspective.project_point(&iso.inverse_transform_point(&face.v_3d[2])),
+    let face_cam = Triangle {
+        a: project_point_to_cam(face.v_3d.a, iso, perspective),
+        b: project_point_to_cam(face.v_3d.b, iso, perspective),
+        c: project_point_to_cam(face.v_3d.c, iso, perspective),
     };
 
     for v in uv_min_v..=uv_max_v {
@@ -365,10 +337,14 @@ fn face_img_to_uv(
                 false => repeat_bounds(v, uv_height),
             };
 
-            let p_uv = Point3::new(u as f32 / uv_width as f32, v as f32 / uv_height as f32, 0.0);
+            let p_uv = Point {
+                x: u as f64 / uv_width as f64,
+                y: v as f64 / uv_height as f64,
+                z: 0.0,
+            };
             if face.v_uv.has_point(p_uv) {
-                let p_bary = face.v_uv.cartesian_to_barycentric(p_uv);
-                let p_cam = face_cam.barycentric_to_cartesian(p_bary);
+                let p_bary = face.v_uv.cartesian_to_barycentric(&p_uv);
+                let p_cam = face_cam.barycentric_to_cartesian(&p_bary);
 
                 if face_cam.has_point(p_cam)
                     && p_cam.x >= -1.0
@@ -388,28 +364,22 @@ fn face_img_to_uv(
                                              .unproject_point(&Point3::new(p_cam.x, p_cam.y, -1.0)),
                                      );
                                     */
-                                    let ray_origin_pt = Point3::new(
-                                        iso.translation.x,
-                                        iso.translation.y,
-                                        iso.translation.z,
-                                    );
-                                    let ray_target_pt = iso.transform_point(
-                                        &perspective
-                                            .unproject_point(&Point3::new(p_cam.x, p_cam.y, 1.0)),
-                                    );
-
-                                    let ray = Ray::new(
-                                        ray_origin_pt,
-                                        Vector3::new(
-                                            ray_target_pt.x - ray_origin_pt.x,
-                                            ray_target_pt.y - ray_origin_pt.y,
-                                            ray_target_pt.z - ray_origin_pt.z,
-                                        ),
-                                    );
+                                    let ray_origin_pt = Point {
+                                        x: iso.translation.x,
+                                        y: iso.translation.y,
+                                        z: iso.translation.z,
+                                    };
+                                    let ray_target_pt =
+                                        point3_to_point(iso.transform_point(
+                                            &perspective.unproject_point(&Point3::new(
+                                                p_cam.x, p_cam.y, 1.0,
+                                            )),
+                                        ));
 
                                     let collisions = closest_faces(
-                                        bvh.traverse(&ray, &faces),
-                                        ray,
+                                        faces,
+                                        ray_origin_pt,
+                                        ray_target_pt,
                                         perspective.znear(),
                                         perspective.zfar(),
                                     );
@@ -630,10 +600,9 @@ fn main() {
         }
     };
     //Loading
-    let mut faces: Vec<Tris3D> = load_meshes(&properties.path_data);
+    let faces: Vec<Tris3D> = load_meshes(&properties.path_data);
     println!("OBJ loaded.");
     let cameras = load_cameras(&properties.path_data);
-    let bvh = BVH::build(&mut faces);
     let cam_num = cameras.len();
     let cameras_loaded = match cam_num {
         1 => "Camera loaded.".to_string(),
@@ -647,7 +616,7 @@ fn main() {
         .map(|cam| {
             let mut texture = RgbaImage::new(properties.img_res_x, properties.img_res_y);
             let id = cam.id;
-            cast_pixels_rays(cam, &faces, &bvh, &mut texture, &properties);
+            cast_pixels_rays(cam, &faces, &mut texture, &properties);
             println!("Finished cam: #{:?} / {:?}", id, cam_num);
             texture
         })
