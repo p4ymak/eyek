@@ -101,8 +101,9 @@ struct Properties {
     img_res_y: u32,
     clip_uv: bool,
     blending: Blending,
-    shadowing: bool,
-    expanses: u8,
+    occlude: bool,
+    bleed: u8,
+    // upscale: u8,
 }
 
 fn load_meshes(path_data: &str) -> Vec<Tris3D> {
@@ -230,6 +231,13 @@ fn cast_pixels_rays(
     let img = image::open(camera_raw.image_path).unwrap();
     let width = img.dimensions().0 as usize;
     let height = img.dimensions().1 as usize;
+    // if properties.upscale > 0 {
+    //     width *= 2_usize.pow(properties.upscale as u32);
+    //     height *= 2_usize.pow(properties.upscale as u32);
+
+    //     img.resize(width as u32, height as u32, FilterType::CatmullRom);
+    // }
+
     let ratio = width as f32 / height as f32;
     let fov_y = 2.0 * ((camera_raw.fov_x / 2.0).tan() / ratio).atan();
     let limit_near = camera_raw.limit_near;
@@ -278,17 +286,18 @@ fn is_face_closest(face: &Tris3D, faces: Vec<&Tris3D>, ray: Ray, near: f32, far:
         return closest[0].1 == face;
     }
     return false;
-    //     let epsilon = dist_to_first / ((far - near).max(f32::MIN));
-
-    //     closest
-    //         .iter()
-    //         .filter(|f| {
-    //             ((f.0.unwrap() - dist_to_first).abs() <= epsilon)
-    //                 && f.0.unwrap() >= near
-    //                 && f.0.unwrap() <= far
-    //         })
-    //         .map(|f| f.1)
-    //         .collect()
+    // let dist_to_first = closest[0].0.unwrap();
+    // let epsilon = (dist_to_first - near) / ((far - near).max(f32::MIN));
+    // let closest_faces = closest
+    //     .iter()
+    //     .filter(|f| {
+    //         ((f.0.unwrap() - dist_to_first).abs() <= epsilon)
+    //             && f.0.unwrap() >= near
+    //             && f.0.unwrap() <= far
+    //     })
+    //     .map(|f| f.1)
+    //     .collect::<Vec<&Tris3D>>();
+    // closest_faces.contains(&face)
 }
 
 fn _mix_colors(source: Rgba<u8>, target: &Rgba<u8>) -> Rgba<u8> {
@@ -374,7 +383,7 @@ fn face_img_to_uv(
                     let cam_y = (cam_height * (p_cam.y + 1.0) / 2.0) as u32;
                     if cam_x < cam_width as u32 && cam_y < cam_height as u32 {
                         if (uv_u as u32) < (uv_width as u32) && (uv_v as u32) < (uv_height as u32) {
-                            let face_is_visible = match properties.shadowing {
+                            let face_is_visible = match properties.occlude {
                                 true => {
                                     /*
                                     let ray_origin_pt = iso.transform_point(
@@ -426,7 +435,7 @@ fn face_img_to_uv(
     }
 }
 
-fn blend_pixel_with_neigbhours(texture: &RgbaImage, x: u32, y: u32) -> Rgba<u8> {
+fn blend_pixel_with_neigbhours(texture: &RgbaImage, x: u32, y: u32, limit: u8) -> Rgba<u8> {
     let ways = [
         [0, 1],
         [1, 1],
@@ -443,7 +452,7 @@ fn blend_pixel_with_neigbhours(texture: &RgbaImage, x: u32, y: u32) -> Rgba<u8> 
     let mut r = 0 as u32;
     let mut g = 0 as u32;
     let mut b = 0 as u32;
-    let mut a = 0 as u8;
+    let mut a = 0 as u32;
     for way in ways.iter() {
         let xp = x as i32 + way[0];
         let yp = y as i32 + way[1];
@@ -454,45 +463,54 @@ fn blend_pixel_with_neigbhours(texture: &RgbaImage, x: u32, y: u32) -> Rgba<u8> 
                 r += col[0] as u32;
                 g += col[1] as u32;
                 b += col[2] as u32;
+                a += col[3] as u32;
             }
         }
     }
-    if neibs_count != 0 {
+    if neibs_count > limit as u32 {
         r /= neibs_count;
         g /= neibs_count;
         b /= neibs_count;
-        a = 255;
+        a /= neibs_count;
+        return Rgba([r as u8, g as u8, b as u8, a as u8]);
+    } else {
+        return *texture.get_pixel(x, y);
     }
-    Rgba([r as u8, g as u8, b as u8, a])
 }
+
+type Color = Rgba<u8>;
 
 enum Blending {
     Average,
     Median,
     Mode,
+    Overlay,
 }
 
-fn average(colors: Vec<[u8; 3]>) -> [u8; 3] {
+fn average(colors: Vec<Color>) -> Color {
     let mut sum_r: usize = 0;
     let mut sum_g: usize = 0;
     let mut sum_b: usize = 0;
+    let mut sum_a: usize = 0;
     colors.iter().for_each(|c| {
         sum_r += c[0] as usize;
         sum_g += c[1] as usize;
         sum_b += c[2] as usize;
+        sum_a += c[3] as usize;
     });
     let r = (sum_r / colors.len()) as u8;
     let g = (sum_g / colors.len()) as u8;
     let b = (sum_b / colors.len()) as u8;
-    [r, g, b]
+    let a = (sum_a / colors.len()) as u8;
+    Rgba([r, g, b, a])
 }
 
-fn median(colors: &mut Vec<[u8; 3]>) -> [u8; 3] {
+fn median(colors: &mut Vec<Color>) -> Color {
     colors.sort_by(|a, b| (col_len(a)).cmp(&col_len(b)));
     colors[colors.len() / 2]
 }
 
-fn mode(colors: Vec<[u8; 3]>) -> Vec<[u8; 3]> {
+fn mode(colors: Vec<Color>) -> Color {
     let mut vec_mode = Vec::new();
     let mut seen_map = HashMap::new();
     let mut max_val = 0;
@@ -508,42 +526,73 @@ fn mode(colors: Vec<[u8; 3]>) -> Vec<[u8; 3]> {
             vec_mode.push(key);
         }
     }
-    vec_mode
+    vec_mode[0]
 }
 
-fn combine_layers(textures: Vec<RgbaImage>, blending: Blending) -> RgbaImage {
-    let (img_res_x, img_res_y) = textures[0].dimensions();
+fn overlay(colors: Vec<Color>) -> Color {
+    let mut bg = Rgba([0, 0, 0, 0]);
+    for fg in colors {
+        let bga = bg[3] as f32;
+        let bgr = bg[0] as f32;
+        let bgg = bg[1] as f32;
+        let bgb = bg[2] as f32;
+
+        let fga = fg[3] as f32;
+        let fgr = fg[0] as f32;
+        let fgg = fg[1] as f32;
+        let fgb = fg[2] as f32;
+
+        let d = (255.0 - fga) * bga;
+        let a = d + fga;
+        let r = (d * bgr + fgr * fga) / a;
+        let g = (d * bgg + fgg * fga) / a;
+        let b = (d * bgb + fgb * fga) / a;
+
+        // let a = (255.0 - fga) * bga + fga;
+        // let r = ((255.0 - fga) * bga * bgr + fga * fgr) / a;
+        // let g = ((255.0 - fga) * bga * bgg + fga * fgg) / a;
+        // let b = ((255.0 - fga) * bga * bgb + fga * fgb) / a;
+
+        bg = Rgba([r as u8, g as u8, b as u8, a as u8]);
+    }
+    bg
+}
+
+fn combine_layers(textures: Vec<(usize, RgbaImage)>, blending: Blending) -> RgbaImage {
+    let (img_res_x, img_res_y) = textures[0].1.dimensions();
     let mut mono_texture = RgbaImage::new(img_res_x, img_res_y);
     for y in 0..img_res_y {
         for x in 0..img_res_x {
-            let mut colors = Vec::<[u8; 3]>::new();
-            for part in &textures {
+            let mut colors = Vec::<Color>::new();
+            for (_, part) in &textures {
                 let col = part.get_pixel(x, y);
                 if col[3] != 0 {
-                    colors.push([col[0], col[1], col[2]]);
+                    colors.push(*col);
                 }
             }
             if colors.len() > 0 {
                 let m = match &blending {
                     Blending::Average => average(colors),
                     Blending::Median => median(&mut colors),
-                    Blending::Mode => mode(colors)[0],
+                    Blending::Mode => mode(colors),
+                    Blending::Overlay => overlay(colors),
                 };
-                mono_texture.put_pixel(x, y, Rgba([m[0], m[1], m[2], 255]))
+                mono_texture.put_pixel(x, y, m)
             }
         }
     }
     mono_texture
 }
 
-fn expand_pixels(texture: &mut RgbaImage) {
+fn expand_pixels(texture: &mut RgbaImage, limit: u8) {
     let (width, height) = texture.dimensions();
     let mut future_pixels = Vec::<(u32, u32, Rgba<u8>)>::new();
     for v in 0..(height as usize) {
         for u in 0..(width as usize) {
             let current_color = *texture.get_pixel(u as u32, v as u32);
             if current_color[3] == 0 {
-                let blended_color = blend_pixel_with_neigbhours(&texture, u as u32, v as u32);
+                let blended_color =
+                    blend_pixel_with_neigbhours(&texture, u as u32, v as u32, limit);
                 if blended_color[3] != 0 {
                     future_pixels.push((u as u32, v as u32, blended_color));
                 }
@@ -555,26 +604,12 @@ fn expand_pixels(texture: &mut RgbaImage) {
     }
 }
 
-/*
-fn _fill_empty_pixels(texture: &mut RgbaImage) {
-    let (width, height) = texture.dimensions();
-    for v in (0..(height as usize)).rev() {
-        for u in 0..(width as usize) {
-            let current_color = *texture.get_pixel(u as u32, v as u32);
-            if current_color[3] == 0 {
-                let blended_color = blend_pixel_with_neigbhours(&texture, u as u32, v as u32);
-                if blended_color[3] != 0 {
-                    texture.put_pixel(u as u32, v as u32, blended_color)
-                }
-            }
-        }
-    }
-}
-*/
-
-fn col_len(c: &[u8; 3]) -> usize {
-    (((c[0] as usize).pow(2) + (c[1] as usize).pow(2) + (c[2] as usize).pow(2)) as f32).sqrt()
-        as usize
+fn col_len(c: &Color) -> usize {
+    (((c[0] as usize).pow(2)
+        + (c[1] as usize).pow(2)
+        + (c[2] as usize).pow(2)
+        + (c[3] as usize).pow(2)) as f32)
+        .sqrt() as usize
 }
 
 fn parse_arguments(args: Vec<String>) -> Option<Properties> {
@@ -596,17 +631,22 @@ fn parse_arguments(args: Vec<String>) -> Option<Properties> {
             Ok(0) => Blending::Average,
             Ok(1) => Blending::Median,
             Ok(2) => Blending::Mode,
-            _ => Blending::Mode,
+            Ok(3) => Blending::Overlay,
+            _ => Blending::Overlay,
         },
-        shadowing: match args[7].parse::<u8>() {
+        occlude: match args[7].parse::<u8>() {
             Ok(0) => false,
             Ok(1) => true,
             _ => false,
         },
-        expanses: match args[8].parse::<u8>() {
+        bleed: match args[8].parse::<u8>() {
             Ok(n) => n,
             _ => 0,
         },
+        // upscale: match args[9].parse::<u8>() {
+        //     Ok(n) => n,
+        //     _ => 0,
+        // },
     };
 
     return Some(properties);
@@ -636,23 +676,32 @@ fn main() {
     println!("{}", cameras_loaded);
     println!("Puny humans are instructed to wait.");
     //Parallel execution
-    let textures: Vec<RgbaImage> = cameras
+    let mut textures: Vec<(usize, RgbaImage)> = cameras
         .into_par_iter()
         .map(|cam| {
             let mut texture = RgbaImage::new(properties.img_res_x, properties.img_res_y);
             let id = cam.id;
             cast_pixels_rays(cam, &faces, &bvh, &mut texture, &properties);
             println!("Finished cam: #{:?} / {:?}", id, cam_num);
-            texture
+            // if properties.bleed == 0 {
+            //     expand_pixels(&mut texture, 2);
+            // }
+            (id, texture)
         })
         .collect();
 
     //Combining images
+    match &properties.blending {
+        Blending::Overlay => {
+            textures.sort_by(|a, b| a.0.cmp(&b.0));
+        }
+        _ => (),
+    };
     let mut mono_texture = combine_layers(textures, properties.blending);
 
     //Color empty pixels around polygons edges
-    for _ in 0..properties.expanses {
-        expand_pixels(&mut mono_texture);
+    for _ in 0..properties.bleed {
+        expand_pixels(&mut mono_texture, 0);
     }
 
     //Filling transparent pixels

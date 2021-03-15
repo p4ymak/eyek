@@ -20,7 +20,7 @@ bl_info = {
     "description": "Texturing by projection mapping from multiple cameras to one UV layer.",
     "author": "Roman Chumak",
     "doc_url": "https://phygitalism.com/en/eyek/",
-    "version": (0, 0, 2, 0),
+    "version": (0, 0, 2, 2),
     "blender": (2, 90, 1),
     "location": "View3D",
     "category": "Texturing"}
@@ -35,10 +35,12 @@ class EYEK_Properties(bpy.types.PropertyGroup):
     blending: bpy.props.EnumProperty(items=[
                                     ('0', 'Average', '', 0),
                                     ('1', 'Median', '', 1), 
-                                    ('2', 'Mode', '', 2)
+                                    ('2', 'Mode', '', 2),
+                                    ('3', 'Overlay', '', 3)
                                     ], description="Method for blending colors between different projections.")
-    shadowing: bpy.props.BoolProperty(default=True, description="Allow polygons shade each other. Otherwise, the projection goes through.")
-    expansions: bpy.props.IntProperty(default=1, min =0, max=255, description="Color empty pixels around UV islands.")
+    occlude: bpy.props.BoolProperty(default=True, description="Allow polygons shade each other. Otherwise, the projection goes through.")
+    bleed: bpy.props.IntProperty(default=1, min =0, max=255, description="Seam Bleed extends the paint beyond UV island bounds to avoid visual artifacts (like bleed for baking).")
+    upscale: bpy.props.IntProperty(default=0, min =0, max=4, description="Upscale input images to avoid aliasing.")
 
 
 class EYEK_exe(bpy.types.Operator):
@@ -146,9 +148,10 @@ class EYEK_exe(bpy.types.Operator):
             res_x = str(bpy.context.scene.eyek.res_x)
             res_y = str(bpy.context.scene.eyek.res_y)
             blending = str(bpy.context.scene.eyek.blending)
-            shadowing = str(int(bpy.context.scene.eyek.shadowing))
-            expansions = str(bpy.context.scene.eyek.expansions)
-
+            occlude = str(int(bpy.context.scene.eyek.occlude))
+            bleed = str(bpy.context.scene.eyek.bleed)
+            upscale = str(bpy.context.scene.eyek.upscale)
+            
             args = [
                     os.path.join(addon_dir, _EXECUTABLE_NAME),
                     eyek_dir,
@@ -157,8 +160,9 @@ class EYEK_exe(bpy.types.Operator):
                     res_y,
                     clip_uv,
                     blending,
-                    shadowing,
-                    expansions
+                    occlude,
+                    bleed,
+                    upscale
                     ]
             popen = subprocess.Popen(args)
             popen.wait()
@@ -191,9 +195,9 @@ class EYEK_PT_Panel(bpy.types.Panel):
         right_col = prefs_row.column(align=True)
         right_col.label(text="Properties:")
         right_col.prop(context.scene.eyek, 'clip_uv', text="Clip UV")
-        right_col.prop(context.scene.eyek, 'shadowing', text="Shadowing")
+        right_col.prop(context.scene.eyek, 'occlude', text="Occlude")
         right_col.separator()
-        right_col.prop(context.scene.eyek, 'expansions', text="Expand")
+        right_col.prop(context.scene.eyek, 'bleed', text="Bleed")
 
         eyek_ui.separator()
         eyek_ui.label(text="Output:")
