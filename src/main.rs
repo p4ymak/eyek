@@ -364,12 +364,18 @@ fn face_img_to_uv(
                 false => repeat_bounds(v, uv_height),
             };
             //let ray_disp = [[0, 0], [0, 1], [1, 0], [1, 1]];
-            let ray_disp = [[0, 0], [1, 1]];
+            let ray_disp = [
+                // [0.5, 0.5],
+                [0.0, 0.0],
+                [0.99, 0.99],
+                [0.0, 0.99],
+                [0.99, 0.0],
+            ];
             let mut colors_to_mix = Vec::<Color>::new();
             for d in ray_disp.iter() {
                 let p_uv = Point {
-                    x: (u + d[0]) as f32 / uv_width as f32,
-                    y: (v + d[1]) as f32 / uv_height as f32,
+                    x: (u as f32 + d[0]) / uv_width as f32,
+                    y: (v as f32 + d[1]) / uv_height as f32,
                     z: 0.0,
                 };
                 if face.v_uv.has_point(p_uv) {
@@ -556,11 +562,6 @@ fn overlay(colors: Vec<Color>) -> Color {
         let g = (d * bgg + fgg * fga) / a;
         let b = (d * bgb + fgb * fga) / a;
 
-        // let a = (255.0 - fga) * bga + fga;
-        // let r = ((255.0 - fga) * bga * bgr + fga * fgr) / a;
-        // let g = ((255.0 - fga) * bga * bgg + fga * fgg) / a;
-        // let b = ((255.0 - fga) * bga * bgb + fga * fgb) / a;
-
         bg = Rgba([r as u8, g as u8, b as u8, a as u8]);
     }
     bg
@@ -711,14 +712,6 @@ fn main() {
     for _ in 0..properties.bleed {
         expand_pixels(&mut mono_texture, 0);
     }
-
-    //Filling transparent pixels
-    /*
-        if properties.fill {
-            fill_empty_pixels(&mut mono_texture);
-            println!("Filled empty pixels");
-        }
-    */
 
     //Export texture
     mono_texture

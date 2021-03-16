@@ -39,7 +39,7 @@ class EYEK_Properties(bpy.types.PropertyGroup):
                                     ('3', 'Overlay', '', 3)
                                     ], description="Method for blending colors between different projections.")
     occlude: bpy.props.BoolProperty(default=True, description="Allow polygons shade each other. Otherwise, the projection goes through.")
-    bleed: bpy.props.IntProperty(default=1, min =0, max=255, description="Seam Bleed extends the paint beyond UV island bounds to avoid visual artifacts (like bleed for baking).")
+    bleed: bpy.props.IntProperty(default=0, min =0, max=255, description="Seam Bleed extends the paint beyond UV island bounds to avoid visual artifacts (like bleed for baking).")
     upscale: bpy.props.IntProperty(default=0, min =0, max=4, description="Upscale input images to avoid aliasing.")
 
 
