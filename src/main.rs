@@ -363,73 +363,81 @@ fn face_img_to_uv(
                 true => v as u32,
                 false => repeat_bounds(v, uv_height),
             };
+            //let ray_disp = [[0, 0], [0, 1], [1, 0], [1, 1]];
+            let ray_disp = [[0, 0], [1, 1]];
+            let mut colors_to_mix = Vec::<Color>::new();
+            for d in ray_disp.iter() {
+                let p_uv = Point {
+                    x: (u + d[0]) as f32 / uv_width as f32,
+                    y: (v + d[1]) as f32 / uv_height as f32,
+                    z: 0.0,
+                };
+                if face.v_uv.has_point(p_uv) {
+                    let p_bary = face.v_uv.cartesian_to_barycentric(&p_uv);
+                    let p_cam = face_cam.barycentric_to_cartesian(&p_bary);
 
-            let p_uv = Point {
-                x: u as f32 / uv_width as f32,
-                y: v as f32 / uv_height as f32,
-                z: 0.0,
-            };
-            if face.v_uv.has_point(p_uv) {
-                let p_bary = face.v_uv.cartesian_to_barycentric(&p_uv);
-                let p_cam = face_cam.barycentric_to_cartesian(&p_bary);
+                    if face_cam.has_point(p_cam)
+                        && p_cam.x >= -1.0
+                        && p_cam.y >= -1.0
+                        && p_cam.x <= 1.0
+                        && p_cam.y <= 1.0
+                    {
+                        let cam_x = (cam_width * (p_cam.x + 1.0) / 2.0) as u32;
+                        let cam_y = (cam_height * (p_cam.y + 1.0) / 2.0) as u32;
+                        if cam_x < cam_width as u32 && cam_y < cam_height as u32 {
+                            if (uv_u as u32) < (uv_width as u32)
+                                && (uv_v as u32) < (uv_height as u32)
+                            {
+                                let face_is_visible = match properties.occlude {
+                                    true => {
+                                        /*
+                                        let ray_origin_pt = iso.transform_point(
+                                             &perspective
+                                                 .unproject_point(&Point3::new(p_cam.x, p_cam.y, -1.0)),
+                                         );
+                                        */
+                                        let ray_origin_pt = Point3::new(
+                                            iso.translation.x,
+                                            iso.translation.y,
+                                            iso.translation.z,
+                                        );
+                                        let ray_target_pt =
+                                            iso.transform_point(&perspective.unproject_point(
+                                                &Point3::new(p_cam.x, p_cam.y, 1.0),
+                                            ));
 
-                if face_cam.has_point(p_cam)
-                    && p_cam.x >= -1.0
-                    && p_cam.y >= -1.0
-                    && p_cam.x <= 1.0
-                    && p_cam.y <= 1.0
-                {
-                    let cam_x = (cam_width * (p_cam.x + 1.0) / 2.0) as u32;
-                    let cam_y = (cam_height * (p_cam.y + 1.0) / 2.0) as u32;
-                    if cam_x < cam_width as u32 && cam_y < cam_height as u32 {
-                        if (uv_u as u32) < (uv_width as u32) && (uv_v as u32) < (uv_height as u32) {
-                            let face_is_visible = match properties.occlude {
-                                true => {
-                                    /*
-                                    let ray_origin_pt = iso.transform_point(
-                                         &perspective
-                                             .unproject_point(&Point3::new(p_cam.x, p_cam.y, -1.0)),
-                                     );
-                                    */
-                                    let ray_origin_pt = Point3::new(
-                                        iso.translation.x,
-                                        iso.translation.y,
-                                        iso.translation.z,
-                                    );
-                                    let ray_target_pt = iso.transform_point(
-                                        &perspective
-                                            .unproject_point(&Point3::new(p_cam.x, p_cam.y, 1.0)),
-                                    );
+                                        let ray = Ray::new(
+                                            ray_origin_pt,
+                                            Vector3::new(
+                                                ray_target_pt.x - ray_origin_pt.x,
+                                                ray_target_pt.y - ray_origin_pt.y,
+                                                ray_target_pt.z - ray_origin_pt.z,
+                                            ),
+                                        );
 
-                                    let ray = Ray::new(
-                                        ray_origin_pt,
-                                        Vector3::new(
-                                            ray_target_pt.x - ray_origin_pt.x,
-                                            ray_target_pt.y - ray_origin_pt.y,
-                                            ray_target_pt.z - ray_origin_pt.z,
-                                        ),
-                                    );
+                                        is_face_closest(
+                                            &face,
+                                            bvh.traverse(&ray, &faces),
+                                            ray,
+                                            perspective.znear(),
+                                            perspective.zfar(),
+                                        )
+                                    }
+                                    false => true,
+                                };
 
-                                    is_face_closest(
-                                        &face,
-                                        bvh.traverse(&ray, &faces),
-                                        ray,
-                                        perspective.znear(),
-                                        perspective.zfar(),
-                                    )
+                                if face_is_visible {
+                                    let source_color =
+                                        img.get_pixel(cam_x, cam_height as u32 - cam_y - 1);
+                                    colors_to_mix.push(source_color);
                                 }
-                                false => true,
-                            };
-
-                            if face_is_visible {
-                                let source_color =
-                                    img.get_pixel(cam_x, cam_height as u32 - cam_y - 1);
-
-                                texture.put_pixel(uv_u, uv_height as u32 - uv_v - 1, source_color);
                             }
                         }
                     }
                 }
+            }
+            if colors_to_mix.len() > 0 {
+                texture.put_pixel(uv_u, uv_height as u32 - uv_v - 1, average(colors_to_mix));
             }
         }
     }
