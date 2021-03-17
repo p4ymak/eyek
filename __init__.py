@@ -78,6 +78,7 @@ class EYEK_exe(bpy.types.Operator):
             os.mkdir(eyek_dir)
             
             cameras_data = []
+            cameras.sort(key=lambda x: x.name)
             for cam in cameras:
                 cam_matrix = global_matrix @ cam.matrix_world
                 l_x, l_y, l_z = cam_matrix.to_translation()
