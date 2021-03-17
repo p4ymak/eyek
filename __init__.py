@@ -38,6 +38,7 @@ class EYEK_Properties(bpy.types.PropertyGroup):
                                     ('2', 'Mode', '', 2),
                                     ('3', 'Overlay', '', 3)
                                     ], description="Method for blending colors between different projections.")
+    backface_culling: bpy.props.BoolProperty(default=True, description="Ignore faces pointing away from view. They are used in occlusion yet.")
     occlude: bpy.props.BoolProperty(default=True, description="Allow polygons shade each other. Otherwise, the projection goes through.")
     bleed: bpy.props.IntProperty(default=0, min =0, max=255, description="Seam Bleed extends the paint beyond UV island bounds to avoid visual artifacts (like bleed for baking).")
     upscale: bpy.props.IntProperty(default=0, min =0, max=4, description="Upscale input images to avoid aliasing.")
@@ -54,7 +55,7 @@ class EYEK_exe(bpy.types.Operator):
         meshes = []
         cameras = []
 
-        scene_dir = directory = os.path.dirname(bpy.data.filepath)
+        scene_dir = os.path.dirname(bpy.data.filepath)
         eyek_root_dir = os.path.join(scene_dir, "eyek_cache")
         eyek_dir = os.path.join(eyek_root_dir, str(time.time_ns()))
         selected = bpy.context.selected_objects
@@ -148,6 +149,7 @@ class EYEK_exe(bpy.types.Operator):
             res_x = str(bpy.context.scene.eyek.res_x)
             res_y = str(bpy.context.scene.eyek.res_y)
             blending = str(bpy.context.scene.eyek.blending)
+            backface_culling = str(int(bpy.context.scene.eyek.backface_culling))
             occlude = str(int(bpy.context.scene.eyek.occlude))
             bleed = str(bpy.context.scene.eyek.bleed)
             upscale = str(bpy.context.scene.eyek.upscale)
@@ -160,6 +162,7 @@ class EYEK_exe(bpy.types.Operator):
                     res_y,
                     clip_uv,
                     blending,
+                    backface_culling,
                     occlude,
                     bleed,
                     upscale
@@ -195,6 +198,7 @@ class EYEK_PT_Panel(bpy.types.Panel):
         right_col = prefs_row.column(align=True)
         right_col.label(text="Properties:")
         right_col.prop(context.scene.eyek, 'clip_uv', text="Clip UV")
+        right_col.prop(context.scene.eyek, 'backface_culling', text="Backface Culling")
         right_col.prop(context.scene.eyek, 'occlude', text="Occlude")
         right_col.separator()
         right_col.prop(context.scene.eyek, 'bleed', text="Bleed")

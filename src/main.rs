@@ -101,6 +101,7 @@ struct Properties {
     img_res_y: u32,
     clip_uv: bool,
     blending: Blending,
+    backface_culling: bool,
     occlude: bool,
     bleed: u8,
     // upscale: u8,
@@ -325,6 +326,30 @@ fn repeat_bounds(x: isize, dim: f32) -> u32 {
     }
 }
 
+fn backface(face: &Tris3D, iso: &Isometry3<f32>, perspective: &Perspective3<f32>) -> bool {
+    let normal = face.v_3d.normal();
+    match normal {
+        None => return true,
+        Some(n) => {
+            let ray_origin_pt =
+                Point3::new(iso.translation.x, iso.translation.y, iso.translation.z);
+            let ray_target_pt =
+                iso.transform_point(&perspective.unproject_point(&Point3::new(0.0, 0.0, 1.0)));
+            let cam_vec = Vector3::new(
+                ray_target_pt.x - ray_origin_pt.x,
+                ray_target_pt.y - ray_origin_pt.y,
+                ray_target_pt.z - ray_origin_pt.z,
+            );
+            let normal_vec = Vector3::new(n.x, n.y, n.z);
+            let dot = cam_vec.dot(&normal_vec);
+            if dot >= 0.0 {
+                return true;
+            }
+            false
+        }
+    }
+}
+
 fn face_img_to_uv(
     faces: &Vec<Tris3D>,
     bvh: &BVH,
@@ -335,6 +360,11 @@ fn face_img_to_uv(
     texture: &mut RgbaImage,
     properties: &Properties,
 ) {
+    if properties.backface_culling {
+        if backface(face, iso, perspective) {
+            return ();
+        }
+    }
     let clip_uv = properties.clip_uv;
     let uv_width = texture.dimensions().0 as f32;
     let uv_height = texture.dimensions().1 as f32;
@@ -352,7 +382,6 @@ fn face_img_to_uv(
         b: project_point_to_cam(face.v_3d.b, iso, perspective),
         c: project_point_to_cam(face.v_3d.c, iso, perspective),
     };
-
     for v in uv_min_v..=uv_max_v {
         for u in uv_min_u..=uv_max_u {
             let uv_u = match clip_uv {
@@ -622,7 +651,7 @@ fn col_len(c: &Color) -> usize {
 }
 
 fn parse_arguments(args: Vec<String>) -> Option<Properties> {
-    if args.len() < 9 {
+    if args.len() < 10 {
         println!("Arguments are insufficient.");
         return None;
     }
@@ -643,12 +672,19 @@ fn parse_arguments(args: Vec<String>) -> Option<Properties> {
             Ok(3) => Blending::Overlay,
             _ => Blending::Overlay,
         },
-        occlude: match args[7].parse::<u8>() {
+
+        backface_culling: match args[7].parse::<u8>() {
             Ok(0) => false,
             Ok(1) => true,
             _ => false,
         },
-        bleed: match args[8].parse::<u8>() {
+
+        occlude: match args[8].parse::<u8>() {
+            Ok(0) => false,
+            Ok(1) => true,
+            _ => false,
+        },
+        bleed: match args[9].parse::<u8>() {
             Ok(n) => n,
             _ => 0,
         },
