@@ -1,7 +1,9 @@
 use bvh::aabb::{Bounded, AABB};
 use bvh::bounding_hierarchy::BHShape;
 use bvh::bvh::BVH;
-use bvh::nalgebra::geometry::{Isometry3, Perspective3, Translation3, UnitQuaternion};
+use bvh::nalgebra::geometry::{
+    Isometry3, Orthographic3, Perspective3, Translation3, UnitQuaternion,
+};
 use bvh::nalgebra::{Point3, Vector3};
 use bvh::ray::Ray;
 use image::{DynamicImage, GenericImageView, Rgba, RgbaImage};
@@ -15,6 +17,11 @@ use std::fs;
 use std::path::Path;
 use triangle::lib32::{Point, Triangle};
 
+enum Projection {
+    Persp(Perspective3<f32>),
+    Ortho(Orthographic3<f32>),
+}
+
 fn point3_to_point(pt: Point3<f32>) -> Point {
     Point {
         x: pt.coords.x,
@@ -26,10 +33,16 @@ fn point_to_point3(pt: Point) -> Point3<f32> {
     Point3::new(pt.x, pt.y, pt.z)
 }
 
-fn project_point_to_cam(pt: Point, iso: &Isometry3<f32>, perspective: &Perspective3<f32>) -> Point {
-    point3_to_point(perspective.project_point(&iso.inverse_transform_point(&point_to_point3(pt))))
+fn project_point_to_cam(pt: Point, iso: &Isometry3<f32>, projection: &Projection) -> Point {
+    match projection {
+        Projection::Persp(pr) => {
+            point3_to_point(pr.project_point(&iso.inverse_transform_point(&point_to_point3(pt))))
+        }
+        Projection::Ortho(pr) => {
+            point3_to_point(pr.project_point(&iso.inverse_transform_point(&point_to_point3(pt))))
+        }
+    }
 }
-
 #[derive(Debug, Clone)]
 struct Tris3D {
     v_3d: Triangle,
@@ -78,6 +91,7 @@ struct VecCameraJSON {
 struct CameraJSON {
     location: Coords,
     rotation_euler: Coords,
+    scale: Coords,
     fov_x: f32,
     limit_near: f32,
     limit_far: f32,
@@ -88,6 +102,7 @@ struct CameraRaw {
     id: usize,
     pos: [f32; 3],
     rot: UnitQuaternion<f32>,
+    scale: [f32; 3],
     fov_x: f32,
     limit_near: f32,
     limit_far: f32,
@@ -203,6 +218,7 @@ fn load_cameras(path_data: &str) -> Vec<CameraRaw> {
             cam.rotation_euler.y,
             cam.rotation_euler.z,
         );
+        let scale = [cam.scale.x, cam.scale.y, cam.scale.z];
         let fov_x = cam.fov_x;
         let limit_near = cam.limit_near;
         let limit_far = cam.limit_far;
@@ -212,6 +228,7 @@ fn load_cameras(path_data: &str) -> Vec<CameraRaw> {
             id,
             pos,
             rot,
+            scale,
             fov_x,
             limit_near,
             limit_far,
@@ -245,17 +262,35 @@ fn cast_pixels_rays(
     let limit_far = camera_raw.limit_far;
     let [cam_x, cam_y, cam_z] = camera_raw.pos;
     let rot = camera_raw.rot;
+    let [sc_x, sc_y, _] = camera_raw.scale;
     let cam_tr = Translation3::new(cam_x, cam_y, cam_z);
     let iso = Isometry3::from_parts(cam_tr, rot);
-    let perspective = Perspective3::new(ratio, fov_y, limit_near, limit_far);
+    let projection = match camera_raw.fov_x > 0.0 {
+        true => Projection::Persp(Perspective3::new(ratio, fov_y, limit_near, limit_far)),
+        false => Projection::Ortho(Orthographic3::new(
+            -sc_x / 2.0,
+            sc_x / 2.0,
+            -sc_y / 2.0,
+            sc_y / 2.0,
+            limit_near,
+            limit_far,
+        )),
+    };
 
-    for face in faces {
+    let faces_visible = match properties.backface_culling {
+        true => faces
+            .iter()
+            .filter(|f| !backface(f, &iso, &projection))
+            .collect::<Vec<&Tris3D>>(),
+        false => faces.iter().collect::<Vec<&Tris3D>>(),
+    };
+    for face in faces_visible {
         face_img_to_uv(
             faces,
             bvh,
             &face,
             &iso,
-            &perspective,
+            &projection,
             &img,
             &mut texture,
             properties,
@@ -263,8 +298,14 @@ fn cast_pixels_rays(
     }
 }
 
-fn is_face_closest(face: &Tris3D, faces: Vec<&Tris3D>, ray: Ray, near: f32, far: f32) -> bool {
-    if faces.len() == 0 {
+fn is_face_closest(
+    face: &Tris3D,
+    faces_visible: Vec<&Tris3D>,
+    ray: Ray,
+    near: f32,
+    far: f32,
+) -> bool {
+    if faces_visible.len() == 0 {
         return false;
     }
     let ray_orig = point3_to_point(ray.origin);
@@ -273,7 +314,7 @@ fn is_face_closest(face: &Tris3D, faces: Vec<&Tris3D>, ray: Ray, near: f32, far:
         y: ray.direction.y,
         z: ray.direction.z,
     };
-    let mut closest: Vec<(Option<f32>, &Tris3D)> = faces
+    let mut closest: Vec<(Option<f32>, &Tris3D)> = faces_visible
         .into_iter()
         .map(|f| (f.v_3d.ray_intersection(&ray_orig, &ray_dir), f))
         .filter(|h| h.0 != None)
@@ -326,15 +367,21 @@ fn repeat_bounds(x: isize, dim: f32) -> u32 {
     }
 }
 
-fn backface(face: &Tris3D, iso: &Isometry3<f32>, perspective: &Perspective3<f32>) -> bool {
+fn backface(face: &Tris3D, iso: &Isometry3<f32>, projection: &Projection) -> bool {
     let normal = face.v_3d.normal();
     match normal {
         None => return true,
         Some(n) => {
             let ray_origin_pt =
                 Point3::new(iso.translation.x, iso.translation.y, iso.translation.z);
-            let ray_target_pt =
-                iso.transform_point(&perspective.unproject_point(&Point3::new(0.0, 0.0, 1.0)));
+            let ray_target_pt = match projection {
+                Projection::Persp(pr) => {
+                    iso.transform_point(&pr.unproject_point(&Point3::new(0.0, 0.0, 1.0)))
+                }
+                Projection::Ortho(pr) => {
+                    iso.transform_point(&pr.unproject_point(&Point3::new(0.0, 0.0, 1.0)))
+                }
+            };
             let cam_vec = Vector3::new(
                 ray_target_pt.x - ray_origin_pt.x,
                 ray_target_pt.y - ray_origin_pt.y,
@@ -355,16 +402,11 @@ fn face_img_to_uv(
     bvh: &BVH,
     face: &Tris3D,
     iso: &Isometry3<f32>,
-    perspective: &Perspective3<f32>,
+    projection: &Projection,
     img: &DynamicImage,
     texture: &mut RgbaImage,
     properties: &Properties,
 ) {
-    if properties.backface_culling {
-        if backface(face, iso, perspective) {
-            return ();
-        }
-    }
     let clip_uv = properties.clip_uv;
     let uv_width = texture.dimensions().0 as f32;
     let uv_height = texture.dimensions().1 as f32;
@@ -378,9 +420,9 @@ fn face_img_to_uv(
     let cam_height = img.dimensions().1 as f32;
 
     let face_cam = Triangle {
-        a: project_point_to_cam(face.v_3d.a, iso, perspective),
-        b: project_point_to_cam(face.v_3d.b, iso, perspective),
-        c: project_point_to_cam(face.v_3d.c, iso, perspective),
+        a: project_point_to_cam(face.v_3d.a, iso, projection),
+        b: project_point_to_cam(face.v_3d.b, iso, projection),
+        c: project_point_to_cam(face.v_3d.c, iso, projection),
     };
     for v in uv_min_v..=uv_max_v {
         for u in uv_min_u..=uv_max_u {
@@ -392,14 +434,7 @@ fn face_img_to_uv(
                 true => v as u32,
                 false => repeat_bounds(v, uv_height),
             };
-            //let ray_disp = [[0, 0], [0, 1], [1, 0], [1, 1]];
-            let ray_disp = [
-                // [0.5, 0.5],
-                [0.0, 0.0],
-                [0.99, 0.99],
-                [0.0, 0.99],
-                [0.99, 0.0],
-            ];
+            let ray_disp = [[0.0, 0.0], [0.99, 0.99], [0.0, 0.99], [0.99, 0.0]];
             let mut colors_to_mix = Vec::<Color>::new();
             for d in ray_disp.iter() {
                 let p_uv = Point {
@@ -425,21 +460,30 @@ fn face_img_to_uv(
                             {
                                 let face_is_visible = match properties.occlude {
                                     true => {
-                                        /*
-                                        let ray_origin_pt = iso.transform_point(
-                                             &perspective
-                                                 .unproject_point(&Point3::new(p_cam.x, p_cam.y, -1.0)),
-                                         );
-                                        */
-                                        let ray_origin_pt = Point3::new(
-                                            iso.translation.x,
-                                            iso.translation.y,
-                                            iso.translation.z,
-                                        );
-                                        let ray_target_pt =
-                                            iso.transform_point(&perspective.unproject_point(
-                                                &Point3::new(p_cam.x, p_cam.y, 1.0),
-                                            ));
+                                        let ray_origin_pt = match projection {
+                                            Projection::Persp(_) => Point3::new(
+                                                iso.translation.x,
+                                                iso.translation.y,
+                                                iso.translation.z,
+                                            ),
+                                            Projection::Ortho(pr) => {
+                                                iso.transform_point(&pr.unproject_point(
+                                                    &Point3::new(p_cam.x, p_cam.y, -1.0),
+                                                ))
+                                            }
+                                        };
+                                        let ray_target_pt = match projection {
+                                            Projection::Persp(pr) => {
+                                                iso.transform_point(&pr.unproject_point(
+                                                    &Point3::new(p_cam.x, p_cam.y, 1.0),
+                                                ))
+                                            }
+                                            Projection::Ortho(pr) => {
+                                                iso.transform_point(&pr.unproject_point(
+                                                    &Point3::new(p_cam.x, p_cam.y, 1.0),
+                                                ))
+                                            }
+                                        };
 
                                         let ray = Ray::new(
                                             ray_origin_pt,
@@ -450,12 +494,17 @@ fn face_img_to_uv(
                                             ),
                                         );
 
+                                        let [znear, zfar] = match projection {
+                                            Projection::Persp(pr) => [pr.znear(), pr.zfar()],
+                                            Projection::Ortho(pr) => [pr.znear(), pr.zfar()],
+                                        };
+
                                         is_face_closest(
                                             &face,
                                             bvh.traverse(&ray, &faces),
                                             ray,
-                                            perspective.znear(),
-                                            perspective.zfar(),
+                                            znear,
+                                            zfar,
                                         )
                                     }
                                     false => true,
@@ -708,6 +757,7 @@ fn main() {
             return;
         }
     };
+
     //Loading
     let mut faces: Vec<Tris3D> = load_meshes(&properties.path_data);
     let bvh = BVH::build(&mut faces);
@@ -720,6 +770,7 @@ fn main() {
     };
     println!("{}", cameras_loaded);
     println!("Puny humans are instructed to wait.");
+
     //Parallel execution
     let mut textures: Vec<(usize, RgbaImage)> = cameras
         .into_par_iter()
@@ -753,5 +804,7 @@ fn main() {
     mono_texture
         .save(Path::new(&properties.path_texture))
         .unwrap();
+
+    fs::remove_dir_all(properties.path_data).unwrap();
     println!("Texture saved!\nEyek out. See you next time.");
 }

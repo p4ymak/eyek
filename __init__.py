@@ -17,10 +17,10 @@ if platform.system() == "Darwin":
 
 bl_info = {
     "name": "Eyek",
-    "description": "Texturing by projection mapping from multiple cameras to one UV layer.",
-    "author": "Roman Chumak",
+    "description": "Texturing by projection mapping from multiple Cameras and Image Empties to one UV layer.",
+    "author": "Roman Chumak p4ymak@gmail.com",
     "doc_url": "https://phygitalism.com/en/eyek/",
-    "version": (0, 0, 2, 2),
+    "version": (0, 0, 2, 3),
     "blender": (2, 90, 1),
     "location": "View3D",
     "category": "Texturing"}
@@ -65,6 +65,10 @@ class EYEK_exe(bpy.types.Operator):
             if ob.type == 'CAMERA':
                 if len(ob.data.background_images) > 0:
                     cameras.append(ob)
+            if ob.type == 'EMPTY':
+                if ob.empty_display_type == 'IMAGE':
+                    if ob.data != None:
+                        cameras.append(ob)
             if ob.type == 'MESH':
                 if len(ob.data.polygons) > 0 and len(ob.data.uv_layers) > 0:
                     meshes.append(ob)
@@ -83,14 +87,28 @@ class EYEK_exe(bpy.types.Operator):
                 cam_matrix = global_matrix @ cam.matrix_world
                 l_x, l_y, l_z = cam_matrix.to_translation()
                 re_x, re_y, re_z = cam_matrix.to_euler()
-                cam_image = bpy.data.images[cam.data.background_images[0].image.name]
+                sc_x, sc_y, sc_z = cam_matrix.to_scale()
+                if cam.type == 'CAMERA':
+                    cam_image = bpy.data.images[cam.data.background_images[0].image.name]
+                    fov = cam.data.angle
+                    cam_near = cam.data.clip_start
+                    cam_far = cam.data.clip_end
+                if cam.type == 'EMPTY':
+                    cam_image = bpy.data.images[cam.data.name]
+                    img_ratio = cam_image.size[0] / cam_image.size[1]
+                    fov = -cam.empty_display_size
+                    sc_x *= -fov
+                    sc_y *= -fov / img_ratio
+                    sc_z *= -fov
+                    cam_near = 0.001
+                    cam_far = 1000.0
+
                 image_path = bpy.path.abspath(cam_image.filepath_raw)
-                fov = cam.data.angle
-                cam_near = cam.data.clip_start
-                cam_far = cam.data.clip_end
+
                 cam_data = {
                             "location": {"x": l_x, "y": l_y, "z": l_z}, 
                             "rotation_euler": {"x": re_x, "y": re_y, "z": re_z},
+                            "scale": {"x": sc_x, "y": sc_y, "z": sc_z},
                             "fov_x": fov, 
                             "limit_near": cam_near, 
                             "limit_far": cam_far, 
@@ -101,11 +119,12 @@ class EYEK_exe(bpy.types.Operator):
                 render = bpy.context.scene.render
                 render_ratio = render.resolution_x / render.resolution_y
                 img_ratio = cam_image.size[0] / cam_image.size[1]
-                if render_ratio >= img_ratio:
-                	cam.data.background_images[0].frame_method = 'CROP'
-                else:
-                	cam.data.background_images[0].frame_method = 'FIT'
-                
+                if cam.type == 'CAMERA':
+                    if render_ratio >= img_ratio:
+                    	cam.data.background_images[0].frame_method = 'CROP'
+                    else:
+                    	cam.data.background_images[0].frame_method = 'FIT'
+                    
 
             json_file_path = os.path.join(eyek_dir, "cameras.json")
             with open(json_file_path, 'w') as outfile:
