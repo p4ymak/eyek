@@ -27,8 +27,11 @@ bl_info = {
 
 
 class EYEK_Properties(bpy.types.PropertyGroup):
-    res_x: bpy.props.IntProperty(default=512, min=2)
-    res_y: bpy.props.IntProperty(default=512, min=2)
+    res_x: bpy.props.IntProperty(default=512, min=2, description="Number of horizontal pixels in the generated texture.")
+    res_y: bpy.props.IntProperty(default=512, min=2, description="Number of vertical pixels in the generated texture.")
+    ortho_near: bpy.props.FloatProperty(default=0.01, min=0.000001, description="Image Empties near clipping distance.")
+    ortho_far: bpy.props.FloatProperty(default=100.0, min=0.000001, description="Image Empties far clipping distance.")
+
     clip_uv: bpy.props.BoolProperty(default=False, description="Clip UV.")
     path_export_image: bpy.props.StringProperty(
         default="//texture.png", subtype="FILE_PATH", description="File to write Texture")
@@ -91,6 +94,12 @@ class EYEK_exe(bpy.types.Operator):
                 if cam.type == 'CAMERA':
                     cam_image = bpy.data.images[cam.data.background_images[0].image.name]
                     fov = cam.data.angle
+                    if cam.data.type == 'ORTHO':
+                        fov = cam.data.ortho_scale
+                        img_ratio = cam_image.size[0] / cam_image.size[1]
+                        sc_x = -fov
+                        sc_y = -fov / img_ratio
+                        sc_z = -fov    
                     cam_near = cam.data.clip_start
                     cam_far = cam.data.clip_end
                 if cam.type == 'EMPTY':
@@ -100,8 +109,8 @@ class EYEK_exe(bpy.types.Operator):
                     sc_x *= -fov
                     sc_y *= -fov / img_ratio
                     sc_z *= -fov
-                    cam_near = 0.001
-                    cam_far = 1000.0
+                    cam_near = bpy.context.scene.eyek.ortho_near
+                    cam_far = bpy.context.scene.eyek.ortho_far
 
                 image_path = bpy.path.abspath(cam_image.filepath_raw)
 
@@ -211,6 +220,10 @@ class EYEK_PT_Panel(bpy.types.Panel):
         left_col.label(text="Resolution:")
         left_col.prop(context.scene.eyek, 'res_x', text="X")
         left_col.prop(context.scene.eyek, 'res_y', text="Y")
+        left_col.separator()
+        left_col.label(text="Empties Clip:")
+        left_col.prop(context.scene.eyek, 'ortho_near', text="Near")
+        left_col.prop(context.scene.eyek, 'ortho_far', text="Far")
         left_col.separator()
         left_col.label(text="Blending:")
         left_col.prop(context.scene.eyek, 'blending', text="")
