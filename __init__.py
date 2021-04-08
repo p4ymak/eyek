@@ -20,17 +20,18 @@ bl_info = {
     "description": "Texturing by projection mapping from multiple Cameras and Image Empties to one UV layer.",
     "author": "Roman Chumak p4ymak@gmail.com",
     "doc_url": "https://phygitalism.com/en/eyek/",
-    "version": (0, 0, 2, 3),
+    "version": (0, 0, 2, 4),
     "blender": (2, 90, 1),
     "location": "View3D",
     "category": "Texturing"}
 
 
 class EYEK_Properties(bpy.types.PropertyGroup):
-    res_x: bpy.props.IntProperty(default=512, min=2, description="Number of horizontal pixels in the generated texture.")
-    res_y: bpy.props.IntProperty(default=512, min=2, description="Number of vertical pixels in the generated texture.")
-    ortho_near: bpy.props.FloatProperty(default=0.01, min=0.000001, description="Image Empties near clipping distance.")
-    ortho_far: bpy.props.FloatProperty(default=100.0, min=0.000001, description="Image Empties far clipping distance.")
+    res_x: bpy.props.IntProperty(default=512, min=2, subtype='PIXEL', description="Number of horizontal pixels in the generated texture.")
+    res_y: bpy.props.IntProperty(default=512, min=2, subtype='PIXEL',description="Number of vertical pixels in the generated texture.")
+    res_sc: bpy.props.IntProperty(default=100, min=1, soft_max=100, subtype='PERCENTAGE', description="Percentage scale for generated texture resolution.")
+    ortho_near: bpy.props.FloatProperty(default=0.01, min=0.000001, subtype='DISTANCE', description="Image Empties near clipping distance.")
+    ortho_far: bpy.props.FloatProperty(default=100.0, min=0.000001, subtype='DISTANCE' ,description="Image Empties far clipping distance.")
 
     clip_uv: bpy.props.BoolProperty(default=False, description="Clip UV.")
     path_export_image: bpy.props.StringProperty(
@@ -43,8 +44,9 @@ class EYEK_Properties(bpy.types.PropertyGroup):
                                     ], description="Method for blending colors between different projections.")
     backface_culling: bpy.props.BoolProperty(default=True, description="Ignore faces pointing away from view. They are used in occlusion yet.")
     occlude: bpy.props.BoolProperty(default=True, description="Allow polygons shade each other. Otherwise, the projection goes through.")
-    bleed: bpy.props.IntProperty(default=0, min =0, max=255, description="Seam Bleed extends the paint beyond UV island bounds to avoid visual artifacts (like bleed for baking).")
+    bleed: bpy.props.IntProperty(default=0, min =0, max=255, subtype='PIXEL', description="Seam Bleed extends the paint beyond UV island bounds to avoid visual artifacts (like bleed for baking).")
     upscale: bpy.props.IntProperty(default=0, min =0, max=4, description="Upscale input images to avoid aliasing.")
+    autoreload: bpy.props.BoolProperty(default=False, description="Auto reload generated texture image.")
 
 
 class EYEK_exe(bpy.types.Operator):
@@ -106,9 +108,14 @@ class EYEK_exe(bpy.types.Operator):
                     cam_image = bpy.data.images[cam.data.name]
                     img_ratio = cam_image.size[0] / cam_image.size[1]
                     fov = -cam.empty_display_size
-                    sc_x *= -fov
-                    sc_y *= -fov / img_ratio
+                    if img_ratio > 1.0:
+                        sc_x *= -fov
+                        sc_y *= -fov / img_ratio
+                    else:
+                        sc_x *= -fov * img_ratio
+                        sc_y *= -fov
                     sc_z *= -fov
+                    	
                     cam_near = bpy.context.scene.eyek.ortho_near
                     cam_far = bpy.context.scene.eyek.ortho_far
 
@@ -175,8 +182,10 @@ class EYEK_exe(bpy.types.Operator):
             if not texture_path.lower().endswith(".png"):
                 texture_path += ".png"
             clip_uv = str(int(bpy.context.scene.eyek.clip_uv))
-            res_x = str(bpy.context.scene.eyek.res_x)
-            res_y = str(bpy.context.scene.eyek.res_y)
+            res_sc = bpy.context.scene.eyek.res_sc / 100.0
+            res_x = str(int(bpy.context.scene.eyek.res_x * res_sc))
+            res_y = str(int(bpy.context.scene.eyek.res_y * res_sc))
+
             blending = str(bpy.context.scene.eyek.blending)
             backface_culling = str(int(bpy.context.scene.eyek.backface_culling))
             occlude = str(int(bpy.context.scene.eyek.occlude))
@@ -199,6 +208,13 @@ class EYEK_exe(bpy.types.Operator):
             popen = subprocess.Popen(args)
             popen.wait()
             print("Time elapsed:", time.strftime("%H:%M:%S", time.gmtime(time.time()-start_time)))
+
+            if bpy.context.scene.eyek.autoreload:
+                for img in bpy.data.images:
+                    if bpy.path.abspath(img.filepath) == texture_path:
+                        img.reload()
+
+
         return {'FINISHED'}
 
 
@@ -220,6 +236,7 @@ class EYEK_PT_Panel(bpy.types.Panel):
         left_col.label(text="Resolution:")
         left_col.prop(context.scene.eyek, 'res_x', text="X")
         left_col.prop(context.scene.eyek, 'res_y', text="Y")
+        left_col.prop(context.scene.eyek, 'res_sc', text="%")
         left_col.separator()
         left_col.label(text="Empties Clip:")
         left_col.prop(context.scene.eyek, 'ortho_near', text="Near")
@@ -235,17 +252,22 @@ class EYEK_PT_Panel(bpy.types.Panel):
         right_col.prop(context.scene.eyek, 'occlude', text="Occlude")
         right_col.separator()
         right_col.prop(context.scene.eyek, 'bleed', text="Bleed")
-
+        right_col.separator()
+        right_col.prop(context.scene.eyek, 'autoreload', text="Auto Reload")
+        
         eyek_ui.separator()
         eyek_ui.label(text="Output:")
         eyek_ui.prop(context.scene.eyek, 'path_export_image', text="")
+
+        eyek_exec = eyek_ui.row()
+        eyek_exec.scale_y = 2.0
         if bpy.context.object!=None and bpy.context.object.type == 'MESH' and bpy.context.object.mode=='OBJECT':
             if bpy.data.is_saved:
-                eyek_ui.operator('eyek.exe', icon="BRUSH_DATA")
+                eyek_exec.operator('eyek.exe', icon="BRUSH_DATA")
             else:
-                eyek_ui.label(text="Save your Scene first.")
+                eyek_exec.label(text="Save your Scene first.")
         else:
-            eyek_ui.label(text="Return to Object Mode.")
+            eyek_exec.label(text="Return to Object Mode.")
 
 def register():
     bpy.utils.register_class(EYEK_Properties)

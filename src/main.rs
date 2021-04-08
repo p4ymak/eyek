@@ -7,10 +7,8 @@ use bvh::nalgebra::geometry::{
 use bvh::nalgebra::{Point3, Vector3};
 use bvh::ray::Ray;
 use image::{DynamicImage, GenericImageView, Rgba, RgbaImage};
-use obj;
 use rayon::prelude::*;
 use serde_derive::Deserialize;
-use serde_json;
 use std::collections::HashMap;
 use std::env;
 use std::fs;
@@ -154,7 +152,7 @@ fn load_meshes(path_data: &str) -> Vec<Tris3D> {
 
                     let u = uv[0] as f32;
                     let v = uv[1] as f32;
-                    vs_pos.push(Point { x: x, y: y, z: z });
+                    vs_pos.push(Point { x, y, z });
                     vs_uv.push(Point { x: u, y: v, z: 0.0 });
 
                     tr_min_x = tr_min_x.min(x);
@@ -202,7 +200,7 @@ fn load_meshes(path_data: &str) -> Vec<Tris3D> {
             }
         }
     }
-    return tris;
+    tris
 }
 
 fn load_cameras(path_data: &str) -> Vec<CameraRaw> {
@@ -305,7 +303,7 @@ fn is_face_closest(
     near: f32,
     far: f32,
 ) -> bool {
-    if faces_visible.len() == 0 {
+    if faces_visible.is_empty() {
         return false;
     }
     let ray_orig = point3_to_point(ray.origin);
@@ -319,7 +317,7 @@ fn is_face_closest(
         .map(|f| (f.v_3d.ray_intersection(&ray_orig, &ray_dir), f))
         .filter(|h| h.0 != None)
         .collect();
-    if closest.len() == 0 {
+    if closest.is_empty() {
         return false;
     }
     closest.sort_by(|a, b| a.0.partial_cmp(&b.0).unwrap());
@@ -327,7 +325,7 @@ fn is_face_closest(
     if dist_to_first >= near && dist_to_first <= far {
         return closest[0].1 == face;
     }
-    return false;
+    false
     // let dist_to_first = closest[0].0.unwrap();
     // let epsilon = (dist_to_first - near) / ((far - near).max(f32::MIN));
     // let closest_faces = closest
@@ -352,9 +350,9 @@ fn _mix_colors(source: Rgba<u8>, target: &Rgba<u8>) -> Rgba<u8> {
     let ta = target[3];
 
     if ta == 0 {
-        return source;
+        source
     } else {
-        return Rgba([sr / 2 + tr / 2, sg / 2 + tg / 2, sb / 2 + tb / 2, 255]);
+        Rgba([sr / 2 + tr / 2, sg / 2 + tg / 2, sb / 2 + tb / 2, 255])
     }
 }
 
@@ -370,7 +368,7 @@ fn repeat_bounds(x: isize, dim: f32) -> u32 {
 fn backface(face: &Tris3D, iso: &Isometry3<f32>, projection: &Projection) -> bool {
     let normal = face.v_3d.normal();
     match normal {
-        None => return true,
+        None => true,
         Some(n) => {
             let ray_origin_pt =
                 Point3::new(iso.translation.x, iso.translation.y, iso.translation.z);
@@ -454,73 +452,73 @@ fn face_img_to_uv(
                     {
                         let cam_x = (cam_width * (p_cam.x + 1.0) / 2.0) as u32;
                         let cam_y = (cam_height * (p_cam.y + 1.0) / 2.0) as u32;
-                        if cam_x < cam_width as u32 && cam_y < cam_height as u32 {
-                            if (uv_u as u32) < (uv_width as u32)
-                                && (uv_v as u32) < (uv_height as u32)
-                            {
-                                let face_is_visible = match properties.occlude {
-                                    true => {
-                                        let ray_origin_pt = match projection {
-                                            Projection::Persp(_) => Point3::new(
-                                                iso.translation.x,
-                                                iso.translation.y,
-                                                iso.translation.z,
-                                            ),
-                                            Projection::Ortho(pr) => {
-                                                iso.transform_point(&pr.unproject_point(
-                                                    &Point3::new(p_cam.x, p_cam.y, -1.0),
-                                                ))
-                                            }
-                                        };
-                                        let ray_target_pt = match projection {
-                                            Projection::Persp(pr) => {
-                                                iso.transform_point(&pr.unproject_point(
-                                                    &Point3::new(p_cam.x, p_cam.y, 1.0),
-                                                ))
-                                            }
-                                            Projection::Ortho(pr) => {
-                                                iso.transform_point(&pr.unproject_point(
-                                                    &Point3::new(p_cam.x, p_cam.y, 1.0),
-                                                ))
-                                            }
-                                        };
+                        if cam_x < cam_width as u32
+                            && cam_y < cam_height as u32
+                            && (uv_u as u32) < (uv_width as u32)
+                            && (uv_v as u32) < (uv_height as u32)
+                        {
+                            let face_is_visible = match properties.occlude {
+                                true => {
+                                    let ray_origin_pt = match projection {
+                                        Projection::Persp(_) => Point3::new(
+                                            iso.translation.x,
+                                            iso.translation.y,
+                                            iso.translation.z,
+                                        ),
+                                        Projection::Ortho(pr) => {
+                                            iso.transform_point(&pr.unproject_point(&Point3::new(
+                                                p_cam.x, p_cam.y, -1.0,
+                                            )))
+                                        }
+                                    };
+                                    let ray_target_pt = match projection {
+                                        Projection::Persp(pr) => {
+                                            iso.transform_point(&pr.unproject_point(&Point3::new(
+                                                p_cam.x, p_cam.y, 1.0,
+                                            )))
+                                        }
+                                        Projection::Ortho(pr) => {
+                                            iso.transform_point(&pr.unproject_point(&Point3::new(
+                                                p_cam.x, p_cam.y, 1.0,
+                                            )))
+                                        }
+                                    };
 
-                                        let ray = Ray::new(
-                                            ray_origin_pt,
-                                            Vector3::new(
-                                                ray_target_pt.x - ray_origin_pt.x,
-                                                ray_target_pt.y - ray_origin_pt.y,
-                                                ray_target_pt.z - ray_origin_pt.z,
-                                            ),
-                                        );
+                                    let ray = Ray::new(
+                                        ray_origin_pt,
+                                        Vector3::new(
+                                            ray_target_pt.x - ray_origin_pt.x,
+                                            ray_target_pt.y - ray_origin_pt.y,
+                                            ray_target_pt.z - ray_origin_pt.z,
+                                        ),
+                                    );
 
-                                        let [znear, zfar] = match projection {
-                                            Projection::Persp(pr) => [pr.znear(), pr.zfar()],
-                                            Projection::Ortho(pr) => [pr.znear(), pr.zfar()],
-                                        };
+                                    let [znear, zfar] = match projection {
+                                        Projection::Persp(pr) => [pr.znear(), pr.zfar()],
+                                        Projection::Ortho(pr) => [pr.znear(), pr.zfar()],
+                                    };
 
-                                        is_face_closest(
-                                            &face,
-                                            bvh.traverse(&ray, &faces),
-                                            ray,
-                                            znear,
-                                            zfar,
-                                        )
-                                    }
-                                    false => true,
-                                };
-
-                                if face_is_visible {
-                                    let source_color =
-                                        img.get_pixel(cam_x, cam_height as u32 - cam_y - 1);
-                                    colors_to_mix.push(source_color);
+                                    is_face_closest(
+                                        &face,
+                                        bvh.traverse(&ray, &faces),
+                                        ray,
+                                        znear,
+                                        zfar,
+                                    )
                                 }
+                                false => true,
+                            };
+
+                            if face_is_visible {
+                                let source_color =
+                                    img.get_pixel(cam_x, cam_height as u32 - cam_y - 1);
+                                colors_to_mix.push(source_color);
                             }
                         }
                     }
                 }
             }
-            if colors_to_mix.len() > 0 {
+            if !colors_to_mix.is_empty() {
                 texture.put_pixel(uv_u, uv_height as u32 - uv_v - 1, average(colors_to_mix));
             }
         }
@@ -541,10 +539,10 @@ fn blend_pixel_with_neigbhours(texture: &RgbaImage, x: u32, y: u32, limit: u8) -
     let bx = texture.dimensions().0 as i32;
     let by = texture.dimensions().1 as i32;
     let mut neibs_count = 0;
-    let mut r = 0 as u32;
-    let mut g = 0 as u32;
-    let mut b = 0 as u32;
-    let mut a = 0 as u32;
+    let mut r = 0;
+    let mut g = 0;
+    let mut b = 0;
+    let mut a = 0;
     for way in ways.iter() {
         let xp = x as i32 + way[0];
         let yp = y as i32 + way[1];
@@ -564,7 +562,7 @@ fn blend_pixel_with_neigbhours(texture: &RgbaImage, x: u32, y: u32, limit: u8) -
         g /= neibs_count;
         b /= neibs_count;
         a /= neibs_count;
-        return Rgba([r as u8, g as u8, b as u8, a as u8]);
+        Rgba([r as u8, g as u8, b as u8, a as u8])
     } else {
         return *texture.get_pixel(x, y);
     }
@@ -657,7 +655,7 @@ fn combine_layers(textures: Vec<(usize, RgbaImage)>, blending: Blending) -> Rgba
                     colors.push(*col);
                 }
             }
-            if colors.len() > 0 {
+            if !colors.is_empty() {
                 let m = match &blending {
                     Blending::Average => average(colors),
                     Blending::Median => median(&mut colors),
@@ -743,7 +741,7 @@ fn parse_arguments(args: Vec<String>) -> Option<Properties> {
         // },
     };
 
-    return Some(properties);
+    Some(properties)
 }
 
 fn main() {
@@ -787,12 +785,10 @@ fn main() {
         .collect();
 
     //Combining images
-    match &properties.blending {
-        Blending::Overlay => {
-            textures.sort_by(|a, b| a.0.cmp(&b.0));
-        }
-        _ => (),
+    if let Blending::Overlay = &properties.blending {
+        textures.sort_by(|a, b| a.0.cmp(&b.0));
     };
+
     let mut mono_texture = combine_layers(textures, properties.blending);
 
     //Color empty pixels around polygons edges
