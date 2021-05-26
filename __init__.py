@@ -97,11 +97,15 @@ class EYEK_exe(bpy.types.Operator):
                     cam_image = bpy.data.images[cam.data.background_images[0].image.name]
                     fov = cam.data.angle
                     if cam.data.type == 'ORTHO':
-                        fov = cam.data.ortho_scale
+                        fov = -cam.data.ortho_scale
                         img_ratio = cam_image.size[0] / cam_image.size[1]
-                        sc_x = -fov
-                        sc_y = -fov / img_ratio
-                        sc_z = -fov    
+                        if img_ratio > 1.0:
+                            sc_x *= -fov
+                            sc_y *= -fov / img_ratio
+                        else:
+                            sc_x *= -fov * img_ratio
+                            sc_y *= -fov
+                    sc_z *= -fov
                     cam_near = cam.data.clip_start
                     cam_far = cam.data.clip_end
                 if cam.type == 'EMPTY':
@@ -115,7 +119,7 @@ class EYEK_exe(bpy.types.Operator):
                         sc_x *= -fov * img_ratio
                         sc_y *= -fov
                     sc_z *= -fov
-                    	
+                        
                     cam_near = bpy.context.scene.eyek.ortho_near
                     cam_far = bpy.context.scene.eyek.ortho_far
 
@@ -137,9 +141,9 @@ class EYEK_exe(bpy.types.Operator):
                 img_ratio = cam_image.size[0] / cam_image.size[1]
                 if cam.type == 'CAMERA':
                     if render_ratio >= img_ratio:
-                    	cam.data.background_images[0].frame_method = 'CROP'
+                        cam.data.background_images[0].frame_method = 'CROP'
                     else:
-                    	cam.data.background_images[0].frame_method = 'FIT'
+                        cam.data.background_images[0].frame_method = 'FIT'
                     
 
             json_file_path = os.path.join(eyek_dir, "cameras.json")

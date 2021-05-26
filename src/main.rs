@@ -315,12 +315,17 @@ fn is_face_closest(
     let mut closest: Vec<(Option<f32>, &Tris3D)> = faces_visible
         .into_iter()
         .map(|f| (f.v_3d.ray_intersection(&ray_orig, &ray_dir), f))
-        .filter(|h| h.0 != None)
+        .filter(|h| h.0 != None && !h.0.unwrap().is_nan())
         .collect();
     if closest.is_empty() {
         return false;
     }
-    closest.sort_by(|a, b| a.0.partial_cmp(&b.0).unwrap());
+    if closest.len() > 1 {
+        closest.sort_by(|a, b| {
+            a.0.partial_cmp(&b.0).unwrap()
+            //.expect(&format!("{:?} {:?}", &a.0, &b.0))
+        });
+    }
     let dist_to_first = closest[0].0.unwrap();
     if dist_to_first >= near && dist_to_first <= far {
         return closest[0].1 == face;
@@ -387,7 +392,7 @@ fn backface(face: &Tris3D, iso: &Isometry3<f32>, projection: &Projection) -> boo
             );
             let normal_vec = Vector3::new(n.x, n.y, n.z);
             let dot = cam_vec.dot(&normal_vec);
-            if dot >= 0.0 {
+            if dot > 0.0 {
                 return true;
             }
             false
@@ -396,7 +401,7 @@ fn backface(face: &Tris3D, iso: &Isometry3<f32>, projection: &Projection) -> boo
 }
 
 fn face_img_to_uv(
-    faces: &Vec<Tris3D>,
+    faces: &[Tris3D],
     bvh: &BVH,
     face: &Tris3D,
     iso: &Isometry3<f32>,
@@ -422,6 +427,9 @@ fn face_img_to_uv(
         b: project_point_to_cam(face.v_3d.b, iso, projection),
         c: project_point_to_cam(face.v_3d.c, iso, projection),
     };
+    if face_cam.is_collinear() {
+        return;
+    }
     for v in uv_min_v..=uv_max_v {
         for u in uv_min_u..=uv_max_u {
             let uv_u = match clip_uv {
