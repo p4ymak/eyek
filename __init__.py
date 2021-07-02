@@ -20,7 +20,7 @@ bl_info = {
     "description": "Texturing by projection mapping from multiple Cameras and Image Empties to one UV layer.",
     "author": "Roman Chumak p4ymak@gmail.com",
     "doc_url": "https://phygitalism.com/en/eyek/",
-    "version": (0, 0, 2, 4),
+    "version": (0, 0, 2, 5),
     "blender": (2, 90, 1),
     "location": "View3D",
     "category": "Texturing"}
@@ -141,9 +141,9 @@ class EYEK_exe(bpy.types.Operator):
                 img_ratio = cam_image.size[0] / cam_image.size[1]
                 if cam.type == 'CAMERA':
                     if render_ratio >= img_ratio:
-                        cam.data.background_images[0].frame_method = 'CROP'
+                    	cam.data.background_images[0].frame_method = 'CROP'
                     else:
-                        cam.data.background_images[0].frame_method = 'FIT'
+                    	cam.data.background_images[0].frame_method = 'FIT'
                     
 
             json_file_path = os.path.join(eyek_dir, "cameras.json")
@@ -183,8 +183,11 @@ class EYEK_exe(bpy.types.Operator):
 
             addon_dir = os.path.dirname(os.path.realpath(__file__))
             texture_path = bpy.path.abspath(bpy.context.scene.eyek.path_export_image)
-            if not texture_path.lower().endswith(".png"):
-                texture_path += ".png"
+            if texture_path.lower().endswith(".png"):
+                texture_path = texture_path[:-4]
+            if texture_path.lower()[-5:-5] == ".1":
+                texture_path = texture_path[:-5]
+            
             clip_uv = str(int(bpy.context.scene.eyek.clip_uv))
             res_sc = bpy.context.scene.eyek.res_sc / 100.0
             res_x = str(int(bpy.context.scene.eyek.res_x * res_sc))
@@ -215,7 +218,7 @@ class EYEK_exe(bpy.types.Operator):
 
             if bpy.context.scene.eyek.autoreload:
                 for img in bpy.data.images:
-                    if bpy.path.abspath(img.filepath) == texture_path:
+                    if bpy.path.abspath(img.filepath) == texture_path+".1001.png":
                         img.reload()
 
 

@@ -9,7 +9,7 @@ use bvh::ray::Ray;
 use image::{DynamicImage, GenericImageView, Rgba, RgbaImage};
 use rayon::prelude::*;
 use serde_derive::Deserialize;
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 use std::env;
 use std::fs;
 use std::path::Path;
@@ -40,6 +40,10 @@ fn project_point_to_cam(pt: Point, iso: &Isometry3<f32>, projection: &Projection
             point3_to_point(pr.project_point(&iso.inverse_transform_point(&point_to_point3(pt))))
         }
     }
+}
+
+fn uv_udim(u: f32, v: f32) -> u32 {
+    1000 + u.ceil() as u32 + 10 * v.floor() as u32
 }
 #[derive(Debug, Clone)]
 struct Tris3D {
@@ -74,6 +78,8 @@ impl PartialEq for Tris3D {
 struct Mesh {
     tris: Vec<Tris3D>,
 }
+#[derive(Debug)]
+struct UDIMs(HashMap<u32, Vec<Tris3D>>);
 
 #[derive(Debug, Deserialize)]
 struct Coords {
@@ -95,7 +101,7 @@ struct CameraJSON {
     limit_far: f32,
     image_path: String,
 }
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 struct CameraRaw {
     id: usize,
     pos: [f32; 3],
@@ -120,11 +126,11 @@ struct Properties {
     // upscale: u8,
 }
 
-fn load_meshes(path_data: &str) -> Vec<Tris3D> {
+fn load_meshes(path_data: &str) -> HashMap<u32, Vec<Tris3D>> {
     let data = obj::Obj::load(Path::new(path_data).join("mesh.obj"))
         .unwrap()
         .data;
-    let mut tris = Vec::<Tris3D>::new();
+    let mut udims_tris = HashMap::<u32, Vec<Tris3D>>::new();
     let mut tris_id: usize = 0;
     for obj in data.objects {
         for group in obj.groups {
@@ -137,7 +143,7 @@ fn load_meshes(path_data: &str) -> Vec<Tris3D> {
                 let mut tr_max_z = f32::MIN;
                 let mut vs_pos = Vec::<Point>::new();
                 let mut vs_uv = Vec::<Point>::new();
-
+                let mut udims = HashSet::<u32>::new();
                 for vert in poly.0 {
                     let x = data.position[vert.0][0] as f32;
                     let y = data.position[vert.0][1] as f32;
@@ -161,13 +167,15 @@ fn load_meshes(path_data: &str) -> Vec<Tris3D> {
                     tr_max_y = tr_max_y.max(y);
                     tr_min_z = tr_min_z.min(z);
                     tr_max_z = tr_max_z.max(z);
+
+                    udims.insert(uv_udim(u, v));
                 }
 
                 if vs_pos.len() >= 3 {
                     let tr_mid_x = (tr_min_x + tr_max_x) / 2.0;
                     let tr_mid_y = (tr_min_y + tr_max_y) / 2.0;
                     let tr_mid_z = (tr_min_z + tr_max_z) / 2.0;
-                    tris.push(Tris3D {
+                    let poly = Tris3D {
                         v_3d: Triangle {
                             a: vs_pos[0],
                             b: vs_pos[1],
@@ -194,13 +202,20 @@ fn load_meshes(path_data: &str) -> Vec<Tris3D> {
                             z: tr_max_z,
                         },
                         node_index: tris_id,
-                    });
+                    };
+                    for u_id in udims {
+                        if udims_tris.contains_key(&u_id) {
+                            udims_tris.get_mut(&u_id).unwrap().push(poly.to_owned());
+                        } else {
+                            udims_tris.insert(u_id, vec![poly.to_owned()]);
+                        }
+                    }
                     tris_id += 1;
                 }
             }
         }
     }
-    tris
+    udims_tris
 }
 
 fn load_cameras(path_data: &str) -> Vec<CameraRaw> {
@@ -651,7 +666,7 @@ fn overlay(colors: Vec<Color>) -> Color {
     bg
 }
 
-fn combine_layers(textures: Vec<(usize, RgbaImage)>, blending: Blending) -> RgbaImage {
+fn combine_layers(textures: Vec<(usize, RgbaImage)>, blending: &Blending) -> RgbaImage {
     let (img_res_x, img_res_y) = textures[0].1.dimensions();
     let mut mono_texture = RgbaImage::new(img_res_x, img_res_y);
     for y in 0..img_res_y {
@@ -765,8 +780,7 @@ fn main() {
     };
 
     //Loading
-    let mut faces: Vec<Tris3D> = load_meshes(&properties.path_data);
-    let bvh = BVH::build(&mut faces);
+    let udims_tris: HashMap<u32, Vec<Tris3D>> = load_meshes(&properties.path_data);
     println!("OBJ loaded.");
     let cameras = load_cameras(&properties.path_data);
     let cam_num = cameras.len();
@@ -776,39 +790,46 @@ fn main() {
     };
     println!("{}", cameras_loaded);
     println!("Puny humans are instructed to wait.");
+    for (id, mut faces) in udims_tris {
+        let bvh = BVH::build(&mut faces);
+        //Parallel execution
+        let mut textures: Vec<(usize, RgbaImage)> = cameras
+            .to_owned()
+            .into_par_iter()
+            .map(|cam| {
+                let mut texture = RgbaImage::new(properties.img_res_x, properties.img_res_y);
+                let id = cam.id;
+                cast_pixels_rays(cam, &faces, &bvh, &mut texture, &properties);
+                println!("Finished cam: #{:?} / {:?}", id, cam_num);
+                // if properties.bleed == 0 {
+                //     expand_pixels(&mut texture, 2);
+                // }
+                (id, texture)
+            })
+            .collect();
 
-    //Parallel execution
-    let mut textures: Vec<(usize, RgbaImage)> = cameras
-        .into_par_iter()
-        .map(|cam| {
-            let mut texture = RgbaImage::new(properties.img_res_x, properties.img_res_y);
-            let id = cam.id;
-            cast_pixels_rays(cam, &faces, &bvh, &mut texture, &properties);
-            println!("Finished cam: #{:?} / {:?}", id, cam_num);
-            // if properties.bleed == 0 {
-            //     expand_pixels(&mut texture, 2);
-            // }
-            (id, texture)
-        })
-        .collect();
+        //Combining images
+        if let Blending::Overlay = &properties.blending {
+            textures.sort_by(|a, b| a.0.cmp(&b.0));
+        };
 
-    //Combining images
-    if let Blending::Overlay = &properties.blending {
-        textures.sort_by(|a, b| a.0.cmp(&b.0));
-    };
+        let mut mono_texture = combine_layers(textures, &properties.blending);
 
-    let mut mono_texture = combine_layers(textures, properties.blending);
+        //Color empty pixels around polygons edges
+        for _ in 0..properties.bleed {
+            expand_pixels(&mut mono_texture, 0);
+        }
 
-    //Color empty pixels around polygons edges
-    for _ in 0..properties.bleed {
-        expand_pixels(&mut mono_texture, 0);
+        //Export texture
+        mono_texture
+            .save(Path::new(&format!(
+                "{}{}{}.png",
+                &properties.path_texture,
+                ".",
+                id.to_string()
+            )))
+            .unwrap();
     }
-
-    //Export texture
-    mono_texture
-        .save(Path::new(&properties.path_texture))
-        .unwrap();
-
     fs::remove_dir_all(properties.path_data).unwrap();
     println!("Texture saved!\nEyek out. See you next time.");
 }
