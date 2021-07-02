@@ -9,7 +9,7 @@ use bvh::ray::Ray;
 use image::{DynamicImage, GenericImageView, Rgba, RgbaImage};
 use rayon::prelude::*;
 use serde_derive::Deserialize;
-use std::collections::{HashMap, HashSet};
+use std::collections::{hash_map::Entry, HashMap, HashSet};
 use std::env;
 use std::fs;
 use std::path::Path;
@@ -168,7 +168,7 @@ fn load_meshes(path_data: &str) -> HashMap<u32, Vec<Tris3D>> {
                     tr_min_z = tr_min_z.min(z);
                     tr_max_z = tr_max_z.max(z);
 
-                    udims.insert(uv_udim(u, v));
+                    udims.insert(uv_udim(u, v).max(1001));
                 }
 
                 if vs_pos.len() >= 3 {
@@ -203,11 +203,12 @@ fn load_meshes(path_data: &str) -> HashMap<u32, Vec<Tris3D>> {
                         },
                         node_index: tris_id,
                     };
+
                     for u_id in udims {
-                        if udims_tris.contains_key(&u_id) {
-                            udims_tris.get_mut(&u_id).unwrap().push(poly.to_owned());
+                        if let Entry::Vacant(entry) = udims_tris.entry(u_id) {
+                            entry.insert(vec![poly.to_owned()]);
                         } else {
-                            udims_tris.insert(u_id, vec![poly.to_owned()]);
+                            udims_tris.get_mut(&u_id).unwrap().push(poly.to_owned());
                         }
                     }
                     tris_id += 1;
@@ -254,7 +255,7 @@ fn load_cameras(path_data: &str) -> Vec<CameraRaw> {
 
 fn cast_pixels_rays(
     camera_raw: CameraRaw,
-    faces: &Vec<Tris3D>,
+    faces: &[Tris3D],
     bvh: &BVH,
     mut texture: &mut RgbaImage,
     properties: &Properties,
@@ -731,10 +732,7 @@ fn parse_arguments(args: Vec<String>) -> Option<Properties> {
         path_texture: args[2].to_string(),
         img_res_x: args[3].parse::<u32>().unwrap(),
         img_res_y: args[4].parse::<u32>().unwrap(),
-        clip_uv: match args[5].parse::<u8>() {
-            Ok(1) => true,
-            _ => false,
-        },
+        clip_uv: matches![args[5].parse::<u8>(), Ok(1)],
         blending: match args[6].parse::<u8>() {
             Ok(0) => Blending::Average,
             Ok(1) => Blending::Median,

@@ -33,7 +33,6 @@ class EYEK_Properties(bpy.types.PropertyGroup):
     ortho_near: bpy.props.FloatProperty(default=0.01, min=0.000001, subtype='DISTANCE', description="Image Empties near clipping distance.")
     ortho_far: bpy.props.FloatProperty(default=100.0, min=0.000001, subtype='DISTANCE' ,description="Image Empties far clipping distance.")
 
-    clip_uv: bpy.props.BoolProperty(default=False, description="Clip UV.")
     path_export_image: bpy.props.StringProperty(
         default="//texture.png", subtype="FILE_PATH", description="File to write Texture")
     blending: bpy.props.EnumProperty(items=[
@@ -188,7 +187,6 @@ class EYEK_exe(bpy.types.Operator):
             if texture_path.lower()[-5:-5] == ".1":
                 texture_path = texture_path[:-5]
             
-            clip_uv = str(int(bpy.context.scene.eyek.clip_uv))
             res_sc = bpy.context.scene.eyek.res_sc / 100.0
             res_x = str(int(bpy.context.scene.eyek.res_x * res_sc))
             res_y = str(int(bpy.context.scene.eyek.res_y * res_sc))
@@ -205,7 +203,7 @@ class EYEK_exe(bpy.types.Operator):
                     texture_path,
                     res_x,
                     res_y,
-                    clip_uv,
+                    str(False),
                     blending,
                     backface_culling,
                     occlude,
@@ -254,7 +252,6 @@ class EYEK_PT_Panel(bpy.types.Panel):
 
         right_col = prefs_row.column(align=True)
         right_col.label(text="Properties:")
-        right_col.prop(context.scene.eyek, 'clip_uv', text="Clip UV")
         right_col.prop(context.scene.eyek, 'backface_culling', text="Backface Culling")
         right_col.prop(context.scene.eyek, 'occlude', text="Occlude")
         right_col.separator()
