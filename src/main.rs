@@ -53,6 +53,7 @@ struct Tris3D {
     mid: Point,
     max: Point,
     node_index: usize,
+    id: usize,
 }
 impl Bounded for Tris3D {
     fn aabb(&self) -> AABB {
@@ -70,7 +71,7 @@ impl BHShape for Tris3D {
 }
 impl PartialEq for Tris3D {
     fn eq(&self, other: &Self) -> bool {
-        self.node_index == other.node_index
+        self.id == other.id
     }
 }
 
@@ -126,11 +127,12 @@ struct Properties {
     // upscale: u8,
 }
 
-fn load_meshes(path_data: &str) -> HashMap<u32, Vec<Tris3D>> {
+fn load_meshes(path_data: &str) -> (HashMap<u32, Vec<Tris3D>>, Vec<Tris3D>) {
     let data = obj::Obj::load(Path::new(path_data).join("mesh.obj"))
         .unwrap()
         .data;
     let mut udims_tris = HashMap::<u32, Vec<Tris3D>>::new();
+    let mut all_tris = Vec::<Tris3D>::new();
     let mut tris_id: usize = 0;
     for obj in data.objects {
         for group in obj.groups {
@@ -202,6 +204,7 @@ fn load_meshes(path_data: &str) -> HashMap<u32, Vec<Tris3D>> {
                             z: tr_max_z,
                         },
                         node_index: tris_id,
+                        id: tris_id,
                     };
 
                     for u_id in udims {
@@ -211,12 +214,13 @@ fn load_meshes(path_data: &str) -> HashMap<u32, Vec<Tris3D>> {
                             udims_tris.get_mut(&u_id).unwrap().push(poly.to_owned());
                         }
                     }
+                    all_tris.push(poly);
                     tris_id += 1;
                 }
             }
         }
     }
-    udims_tris
+    (udims_tris, all_tris)
 }
 
 fn load_cameras(path_data: &str) -> Vec<CameraRaw> {
@@ -254,6 +258,7 @@ fn load_cameras(path_data: &str) -> Vec<CameraRaw> {
 }
 
 fn cast_pixels_rays(
+    all_tris: &[Tris3D],
     camera_raw: CameraRaw,
     faces: &[Tris3D],
     bvh: &BVH,
@@ -300,7 +305,7 @@ fn cast_pixels_rays(
     };
     for face in faces_visible {
         face_img_to_uv(
-            faces,
+            all_tris,
             bvh,
             &face,
             &iso,
@@ -417,7 +422,7 @@ fn backface(face: &Tris3D, iso: &Isometry3<f32>, projection: &Projection) -> boo
 }
 
 fn face_img_to_uv(
-    faces: &[Tris3D],
+    all_tris: &[Tris3D],
     bvh: &BVH,
     face: &Tris3D,
     iso: &Isometry3<f32>,
@@ -524,7 +529,7 @@ fn face_img_to_uv(
 
                                     is_face_closest(
                                         &face,
-                                        bvh.traverse(&ray, &faces),
+                                        bvh.traverse(&ray, &all_tris),
                                         ray,
                                         znear,
                                         zfar,
@@ -778,8 +783,10 @@ fn main() {
     };
 
     //Loading
-    let udims_tris: HashMap<u32, Vec<Tris3D>> = load_meshes(&properties.path_data);
+    let (udims_tris, mut all_tris) = load_meshes(&properties.path_data);
+    let udims_num = udims_tris.len();
     println!("OBJ loaded.");
+    println!("UDIMs: {}", udims_num);
     let cameras = load_cameras(&properties.path_data);
     let cam_num = cameras.len();
     let cameras_loaded = match cam_num {
@@ -788,8 +795,9 @@ fn main() {
     };
     println!("{}", cameras_loaded);
     println!("Puny humans are instructed to wait.");
-    for (id, mut faces) in udims_tris {
-        let bvh = BVH::build(&mut faces);
+    let bvh = BVH::build(&mut all_tris);
+    for (id, faces) in udims_tris {
+        println!("Started UDIM: {}", id);
         //Parallel execution
         let mut textures: Vec<(usize, RgbaImage)> = cameras
             .to_owned()
@@ -797,7 +805,7 @@ fn main() {
             .map(|cam| {
                 let mut texture = RgbaImage::new(properties.img_res_x, properties.img_res_y);
                 let id = cam.id;
-                cast_pixels_rays(cam, &faces, &bvh, &mut texture, &properties);
+                cast_pixels_rays(&all_tris, cam, &faces, &bvh, &mut texture, &properties);
                 println!("Finished cam: #{:?} / {:?}", id, cam_num);
                 // if properties.bleed == 0 {
                 //     expand_pixels(&mut texture, 2);
@@ -819,14 +827,12 @@ fn main() {
         }
 
         //Export texture
-        mono_texture
-            .save(Path::new(&format!(
-                "{}{}{}.png",
-                &properties.path_texture,
-                ".",
-                id.to_string()
-            )))
-            .unwrap();
+        let file_name = match &udims_num {
+            1 => format!("{}.png", &properties.path_texture),
+            _ => format!("{}{}{}.png", &properties.path_texture, ".", id.to_string()),
+        };
+        mono_texture.save(Path::new(&file_name)).unwrap();
+        println!("Finished UDIM: {}\n", id);
     }
     fs::remove_dir_all(properties.path_data).unwrap();
     println!("Texture saved!\nEyek out. See you next time.");
