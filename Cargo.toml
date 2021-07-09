@@ -1,6 +1,6 @@
 [package]
 name = "eyek"
-version = "0.2.5"
+version = "0.2.6"
 authors = ["Roman Chumak <p4ymak@gmail.com>"]
 edition = "2018"
 

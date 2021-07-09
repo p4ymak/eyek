@@ -20,7 +20,7 @@ bl_info = {
     "description": "Texturing by projection mapping from multiple Cameras and Image Empties to one UV layer.",
     "author": "Roman Chumak p4ymak@gmail.com",
     "doc_url": "https://phygitalism.com/en/eyek/",
-    "version": (0, 0, 2, 5),
+    "version": (0, 0, 2, 6),
     "blender": (2, 90, 1),
     "location": "View3D",
     "category": "Texturing"}
@@ -94,16 +94,21 @@ class EYEK_exe(bpy.types.Operator):
                 sc_x, sc_y, sc_z = cam_matrix.to_scale()
                 if cam.type == 'CAMERA':
                     cam_image = bpy.data.images[cam.data.background_images[0].image.name]
+                    img_ratio = cam_image.size[0] / cam_image.size[1]
                     fov = cam.data.angle
                     if cam.data.type == 'ORTHO':
                         fov = -cam.data.ortho_scale
-                        img_ratio = cam_image.size[0] / cam_image.size[1]
+                        
                         if img_ratio > 1.0:
                             sc_x *= -fov
                             sc_y *= -fov / img_ratio
                         else:
                             sc_x *= -fov * img_ratio
                             sc_y *= -fov
+                    else:
+                        if img_ratio < 1.0:
+                            fov = 2 * atan(tan(fov / 2) * img_ratio)
+
                     sc_z *= -fov
                     cam_near = cam.data.clip_start
                     cam_far = cam.data.clip_end

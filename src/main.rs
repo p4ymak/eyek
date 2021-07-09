@@ -672,9 +672,10 @@ fn overlay(colors: Vec<Color>) -> Color {
     bg
 }
 
-fn combine_layers(textures: Vec<(usize, RgbaImage)>, blending: &Blending) -> RgbaImage {
+fn combine_layers(textures: Vec<(usize, RgbaImage)>, blending: &Blending) -> (RgbaImage, bool) {
     let (img_res_x, img_res_y) = textures[0].1.dimensions();
     let mut mono_texture = RgbaImage::new(img_res_x, img_res_y);
+    let mut texture_is_empty = true;
     for y in 0..img_res_y {
         for x in 0..img_res_x {
             let mut colors = Vec::<Color>::new();
@@ -685,6 +686,7 @@ fn combine_layers(textures: Vec<(usize, RgbaImage)>, blending: &Blending) -> Rgb
                 }
             }
             if !colors.is_empty() {
+                texture_is_empty = false;
                 let m = match &blending {
                     Blending::Average => average(colors),
                     Blending::Median => median(&mut colors),
@@ -695,7 +697,7 @@ fn combine_layers(textures: Vec<(usize, RgbaImage)>, blending: &Blending) -> Rgb
             }
         }
     }
-    mono_texture
+    (mono_texture, texture_is_empty)
 }
 
 fn expand_pixels(texture: &mut RgbaImage, limit: u8) {
@@ -819,7 +821,7 @@ fn main() {
             textures.sort_by(|a, b| a.0.cmp(&b.0));
         };
 
-        let mut mono_texture = combine_layers(textures, &properties.blending);
+        let (mut mono_texture, texture_is_empty) = combine_layers(textures, &properties.blending);
 
         //Color empty pixels around polygons edges
         for _ in 0..properties.bleed {
@@ -831,8 +833,10 @@ fn main() {
             1 => format!("{}.png", &properties.path_texture),
             _ => format!("{}{}{}.png", &properties.path_texture, ".", id.to_string()),
         };
-        mono_texture.save(Path::new(&file_name)).unwrap();
-        println!("Finished UDIM: {}\n", id);
+        if !texture_is_empty {
+            mono_texture.save(Path::new(&file_name)).unwrap();
+            println!("Finished UDIM: {}\n", id);
+        }
     }
     fs::remove_dir_all(properties.path_data).unwrap();
     println!("Texture saved!\nEyek out. See you next time.");
