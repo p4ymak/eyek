@@ -144,10 +144,16 @@ class EYEK_exe(bpy.types.Operator):
                 render_ratio = render.resolution_x / render.resolution_y
                 img_ratio = cam_image.size[0] / cam_image.size[1]
                 if cam.type == 'CAMERA':
-                    if render_ratio >= img_ratio:
-                    	cam.data.background_images[0].frame_method = 'CROP'
+                    if render_ratio >= 1.0:
+                        if render_ratio >= img_ratio:
+                        	cam.data.background_images[0].frame_method = 'CROP'
+                        else:
+                        	cam.data.background_images[0].frame_method = 'FIT'
                     else:
-                    	cam.data.background_images[0].frame_method = 'FIT'
+                        if render_ratio < img_ratio:
+                            cam.data.background_images[0].frame_method = 'CROP'
+                        else:
+                            cam.data.background_images[0].frame_method = 'FIT'
                     
 
             json_file_path = os.path.join(eyek_dir, "cameras.json")

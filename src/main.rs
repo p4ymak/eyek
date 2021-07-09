@@ -161,7 +161,11 @@ fn load_meshes(path_data: &str) -> (HashMap<u32, Vec<Tris3D>>, Vec<Tris3D>) {
                     let u = uv[0] as f32;
                     let v = uv[1] as f32;
                     vs_pos.push(Point { x, y, z });
-                    vs_uv.push(Point { x: u, y: v, z: 0.0 });
+                    vs_uv.push(Point {
+                        x: u % 1.0,
+                        y: v % 1.0,
+                        z: 0.0,
+                    });
 
                     tr_min_x = tr_min_x.min(x);
                     tr_max_x = tr_max_x.max(x);
@@ -382,7 +386,7 @@ fn _mix_colors(source: Rgba<u8>, target: &Rgba<u8>) -> Rgba<u8> {
     }
 }
 
-fn repeat_bounds(x: isize, dim: f32) -> u32 {
+fn _repeat_bounds(x: isize, dim: f32) -> u32 {
     let rep = x as f32 % dim;
     if rep < 0.0 {
         (dim + rep) as u32
@@ -431,7 +435,7 @@ fn face_img_to_uv(
     texture: &mut RgbaImage,
     properties: &Properties,
 ) {
-    let clip_uv = properties.clip_uv;
+    // let clip_uv = properties.clip_uv;
     let uv_width = texture.dimensions().0 as f32;
     let uv_height = texture.dimensions().1 as f32;
     let tris_bounds = face.v_uv.aabb();
@@ -453,14 +457,16 @@ fn face_img_to_uv(
     }
     for v in uv_min_v..=uv_max_v {
         for u in uv_min_u..=uv_max_u {
-            let uv_u = match clip_uv {
-                true => u as u32,
-                false => repeat_bounds(u, uv_width),
-            };
-            let uv_v = match clip_uv {
-                true => v as u32,
-                false => repeat_bounds(v, uv_height),
-            };
+            let uv_u = u as u32;
+            let uv_v = v as u32;
+            // let uv_u = match clip_uv {
+            //     true => u as u32,
+            //     false => repeat_bounds(u, uv_width),
+            // };
+            // let uv_v = match clip_uv {
+            //     true => v as u32,
+            //     false => repeat_bounds(v, uv_height),
+            // };
             let ray_disp = [[0.0, 0.0], [0.99, 0.99], [0.0, 0.99], [0.99, 0.0]];
             let mut colors_to_mix = Vec::<Color>::new();
             for d in ray_disp.iter() {
