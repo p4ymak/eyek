@@ -169,10 +169,8 @@ fn load_meshes(path_data: &str) -> (HashMap<u32, Vec<Tris3D>>, Vec<Tris3D>) {
                     tr_max_y = tr_max_y.max(y);
                     tr_min_z = tr_min_z.min(z);
                     tr_max_z = tr_max_z.max(z);
-                    if u > 1.0 || v > 1.0 {
+                    if u % 1.0 != 0.0 && v % 1.0 != 0.0 {
                         udims.insert(uv_udim(u, v).max(1001));
-                    } else {
-                        udims.insert(1001);
                     }
                 }
 

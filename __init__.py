@@ -227,7 +227,7 @@ class EYEK_exe(bpy.types.Operator):
 
             if bpy.context.scene.eyek.autoreload:
                 for img in bpy.data.images:
-                    if bpy.path.abspath(img.filepath) == texture_path+".1001.png":
+                    if bpy.path.abspath(img.filepath) == texture_path+".1001.png" or bpy.path.abspath(img.filepath) == texture_path+".png":
                         img.reload()
 
 
