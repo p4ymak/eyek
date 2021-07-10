@@ -45,7 +45,7 @@ class EYEK_Properties(bpy.types.PropertyGroup):
     occlude: bpy.props.BoolProperty(default=True, description="Allow polygons shade each other. Otherwise, the projection goes through.")
     bleed: bpy.props.IntProperty(default=0, min =0, max=255, subtype='PIXEL', description="Seam Bleed extends the paint beyond UV island bounds to avoid visual artifacts (like bleed for baking).")
     upscale: bpy.props.IntProperty(default=0, min =0, max=4, description="Upscale input images to avoid aliasing.")
-    autoreload: bpy.props.BoolProperty(default=False, description="Auto reload generated texture image.")
+    autoreload: bpy.props.BoolProperty(default=True, description="Auto reload generated texture image.")
 
 
 class EYEK_exe(bpy.types.Operator):
