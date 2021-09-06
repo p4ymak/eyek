@@ -20,7 +20,7 @@ bl_info = {
     "description": "Texturing by projection mapping from multiple Cameras and Image Empties to one UV layer.",
     "author": "Roman Chumak p4ymak@gmail.com",
     "doc_url": "https://phygitalism.com/en/eyek/",
-    "version": (0, 0, 2, 6),
+    "version": (0, 0, 2, 7),
     "blender": (2, 90, 1),
     "location": "View3D",
     "category": "Texturing"}

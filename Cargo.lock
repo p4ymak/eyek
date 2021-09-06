@@ -168,7 +168,7 @@ checksum = "e78d4f1cc4ae33bbfc157ed5d5a5ef3bc29227303d595861deb238fcec4e9457"
 
 [[package]]
 name = "eyek"
-version = "0.2.6"
+version = "0.2.7"
 dependencies = [
  "bvh",
  "image",
@@ -628,9 +628,9 @@ dependencies = [
 
 [[package]]
 name = "triangle"
-version = "0.1.351"
+version = "0.1.353"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "748f8f1b253318a94b947e29f3553c2d0a0b24ad510d6ba550e6a0206d00f34a"
+checksum = "613891ad05813443d64a920fcb9769a41ba447613260cc3888d23e463ec9fd85"
 
 [[package]]
 name = "typenum"

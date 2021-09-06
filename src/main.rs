@@ -207,7 +207,9 @@ fn load_meshes(path_data: &str) -> (HashMap<u32, Vec<Tris3D>>, Vec<Tris3D>) {
                         node_index: tris_id,
                         id: tris_id,
                     };
-
+                    if poly.v_3d.is_collinear() {
+                        continue;
+                    }
                     for u_id in udims {
                         if let Entry::Vacant(entry) = udims_tris.entry(u_id) {
                             entry.insert(vec![poly.to_owned()]);
