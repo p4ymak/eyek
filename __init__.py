@@ -87,6 +87,9 @@ class EYEK_exe(bpy.types.Operator):
             
             cameras_data = []
             cameras.sort(key=lambda x: x.name)
+
+            render = bpy.context.scene.render
+            render_ratio = render.resolution_x / render.resolution_y
             for cam in cameras:
                 cam_matrix = global_matrix @ cam.matrix_world
                 l_x, l_y, l_z = cam_matrix.to_translation()
@@ -95,23 +98,28 @@ class EYEK_exe(bpy.types.Operator):
                 if cam.type == 'CAMERA':
                     cam_image = bpy.data.images[cam.data.background_images[0].image.name]
                     img_ratio = cam_image.size[0] / cam_image.size[1]
+
                     fov = cam.data.angle
-                    if cam.data.type == 'ORTHO':
-                        fov = -cam.data.ortho_scale
-                        
-                        if img_ratio > 1.0:
+                    cam.data.background_images[0].frame_method = 'CROP'
+                    if render_ratio >= 1.0:
+                        if cam.data.type == 'ORTHO':
+                            fov = -cam.data.ortho_scale
                             sc_x *= -fov
                             sc_y *= -fov / img_ratio
-                        else:
+
+                    else:
+                        if cam.data.type == 'ORTHO':
+                            fov = -cam.data.ortho_scale
                             sc_x *= -fov * img_ratio
                             sc_y *= -fov
-                    else:
-                        if img_ratio < 1.0:
+                        else:
                             fov = 2 * atan(tan(fov / 2) * img_ratio)
+
 
                     sc_z *= -fov
                     cam_near = cam.data.clip_start
                     cam_far = cam.data.clip_end
+                
                 if cam.type == 'EMPTY':
                     cam_image = bpy.data.images[cam.data.name]
                     img_ratio = cam_image.size[0] / cam_image.size[1]
@@ -140,20 +148,7 @@ class EYEK_exe(bpy.types.Operator):
                             }
                 cameras_data.append(cam_data)
 
-                render = bpy.context.scene.render
-                render_ratio = render.resolution_x / render.resolution_y
-                img_ratio = cam_image.size[0] / cam_image.size[1]
-                if cam.type == 'CAMERA':
-                    if render_ratio >= 1.0:
-                        if render_ratio >= img_ratio:
-                        	cam.data.background_images[0].frame_method = 'CROP'
-                        else:
-                        	cam.data.background_images[0].frame_method = 'FIT'
-                    else:
-                        if render_ratio < img_ratio:
-                            cam.data.background_images[0].frame_method = 'CROP'
-                        else:
-                            cam.data.background_images[0].frame_method = 'FIT'
+                    
                     
 
             json_file_path = os.path.join(eyek_dir, "cameras.json")
