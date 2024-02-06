@@ -148,9 +148,6 @@ class EYEK_exe(bpy.types.Operator):
                             }
                 cameras_data.append(cam_data)
 
-                    
-                    
-
             json_file_path = os.path.join(eyek_dir, "cameras.json")
             with open(json_file_path, 'w') as outfile:
                 json.dump({"data": cameras_data}, outfile)
@@ -159,27 +156,24 @@ class EYEK_exe(bpy.types.Operator):
             for mesh in meshes:
                 mesh.select_set(True)
             obj_path = os.path.join(eyek_dir, "mesh.obj")
-            bpy.ops.export_scene.obj(filepath=obj_path,
-                                     use_selection=True,
-                                     use_animation=False, 
-                                     use_mesh_modifiers=True, 
-                                     use_edges=True,
-                                     use_smooth_groups=False,
-                                     use_smooth_groups_bitflags=False,
-                                     use_normals=True,
-                                     use_uvs=True,
-                                     use_materials=False,
-                                     use_triangles=True,
-                                     use_nurbs=False,
-                                     use_vertex_groups=False,
-                                     use_blen_objects=False,
-                                     group_by_object=False,
-                                     group_by_material=False,
-                                     keep_vertex_order=False,
-                                     global_scale=1.0,
-                                     path_mode='AUTO',
-                                     axis_forward='-Z',
-                                     axis_up='Y')
+            bpy.ops.wm.obj_export(filepath=obj_path,
+                                    export_selected_objects=True,
+                                    export_animation=False, 
+                                    apply_modifiers=True, 
+                                    export_smooth_groups=False,
+                                    smooth_group_bitflags=False,
+                                    export_normals=True,
+                                    export_uv=True,
+                                    export_materials=False,
+                                    export_triangulated_mesh=True,
+                                    export_curves_as_nurbs=False,
+                                    export_vertex_groups=False,
+                                    export_object_groups=False,
+                                    export_material_groups=False,
+                                    global_scale=1.0,
+                                    path_mode='AUTO',
+                                    forward_axis='NEGATIVE_Z',
+                                    up_axis='Y')
             
             print("OBJ and JSON exported.")
             
@@ -284,6 +278,7 @@ def register():
     bpy.types.Scene.eyek = bpy.props.PointerProperty(type=EYEK_Properties)
     bpy.utils.register_class(EYEK_exe)
     bpy.utils.register_class(EYEK_PT_Panel)
+
     if platform.system() != "Windows":
         os.chmod(os.path.join(os.path.dirname(
             os.path.realpath(__file__)), _EXECUTABLE_NAME), 7770)    
