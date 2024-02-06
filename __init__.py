@@ -18,8 +18,8 @@ if platform.system() == "Darwin":
 bl_info = {
     "name": "Eyek",
     "description": "Texturing by projection mapping from multiple Cameras and Image Empties to one UV layer.",
-    "author": "Roman Chumak p4ymak@gmail.com",
-    "doc_url": "https://phygitalism.com/en/eyek/",
+    "author": "Roman Chumak p4ymak@yandex.ru",
+    "doc_url": "https://github.com/p4ymak/eyek",
     "version": (0, 0, 2, 8),
     "blender": (3, 6, 0),
     "location": "View3D",

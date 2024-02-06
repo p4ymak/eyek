@@ -13,25 +13,29 @@ use std::collections::{hash_map::Entry, HashMap, HashSet};
 use std::env;
 use std::fs;
 use std::path::Path;
-use triangle::lib32::{Point, Triangle};
+use triangle::{Point, Triangle};
 
 enum Projection {
     Persp(Perspective3<f32>),
     Ortho(Orthographic3<f32>),
 }
 
-fn point3_to_point(pt: Point3<f32>) -> Point {
+fn point3_to_point(pt: Point3<f32>) -> Point<f32> {
     Point {
-        x: pt.coords.x,
-        y: pt.coords.y,
-        z: pt.coords.z,
+        x: pt.x,
+        y: pt.y,
+        z: pt.z,
     }
 }
-fn point_to_point3(pt: Point) -> Point3<f32> {
+fn point_to_point3(pt: Point<f32>) -> Point3<f32> {
     Point3::new(pt.x, pt.y, pt.z)
 }
 
-fn project_point_to_cam(pt: Point, iso: &Isometry3<f32>, projection: &Projection) -> Point {
+fn project_point_to_cam(
+    pt: Point<f32>,
+    iso: &Isometry3<f32>,
+    projection: &Projection,
+) -> Point<f32> {
     match projection {
         Projection::Persp(pr) => {
             point3_to_point(pr.project_point(&iso.inverse_transform_point(&point_to_point3(pt))))
@@ -47,11 +51,10 @@ fn uv_udim(u: f32, v: f32) -> u32 {
 }
 #[derive(Debug, Clone)]
 struct Tris3D {
-    v_3d: Triangle,
-    v_uv: Triangle,
-    min: Point,
-    mid: Point,
-    max: Point,
+    v_3d: Triangle<f32>,
+    v_uv: Triangle<f32>,
+    min: Point<f32>,
+    max: Point<f32>,
     node_index: usize,
     id: usize,
 }
@@ -75,10 +78,6 @@ impl PartialEq for Tris3D {
     }
 }
 
-#[derive(Debug)]
-struct Mesh {
-    tris: Vec<Tris3D>,
-}
 #[derive(Debug)]
 struct UDIMs(HashMap<u32, Vec<Tris3D>>);
 
@@ -143,13 +142,13 @@ fn load_meshes(path_data: &str) -> (HashMap<u32, Vec<Tris3D>>, Vec<Tris3D>) {
                 let mut tr_max_y = f32::MIN;
                 let mut tr_min_z = f32::MAX;
                 let mut tr_max_z = f32::MIN;
-                let mut vs_pos = Vec::<Point>::new();
-                let mut vs_uv = Vec::<Point>::new();
+                let mut vs_pos = Vec::<Point<f32>>::new();
+                let mut vs_uv = Vec::<Point<f32>>::new();
                 let mut udims = HashSet::<u32>::new();
                 for vert in poly.0 {
-                    let x = data.position[vert.0][0] as f32;
-                    let y = data.position[vert.0][1] as f32;
-                    let z = data.position[vert.0][2] as f32;
+                    let x = data.position[vert.0][0];
+                    let y = data.position[vert.0][1];
+                    let z = data.position[vert.0][2];
                     let uv = match vert.1 {
                         Some(i) => match data.texture.get(i) {
                             Some(uv) => uv,
@@ -158,8 +157,8 @@ fn load_meshes(path_data: &str) -> (HashMap<u32, Vec<Tris3D>>, Vec<Tris3D>) {
                         _ => continue,
                     };
 
-                    let u = uv[0] as f32;
-                    let v = uv[1] as f32;
+                    let u = uv[0];
+                    let v = uv[1];
                     vs_pos.push(Point { x, y, z });
                     vs_uv.push(Point { x: u, y: v, z: 0.0 });
 
@@ -175,9 +174,6 @@ fn load_meshes(path_data: &str) -> (HashMap<u32, Vec<Tris3D>>, Vec<Tris3D>) {
                 }
 
                 if vs_pos.len() >= 3 {
-                    let tr_mid_x = (tr_min_x + tr_max_x) / 2.0;
-                    let tr_mid_y = (tr_min_y + tr_max_y) / 2.0;
-                    let tr_mid_z = (tr_min_z + tr_max_z) / 2.0;
                     let poly = Tris3D {
                         v_3d: Triangle {
                             a: vs_pos[0],
@@ -193,11 +189,6 @@ fn load_meshes(path_data: &str) -> (HashMap<u32, Vec<Tris3D>>, Vec<Tris3D>) {
                             x: tr_min_x,
                             y: tr_min_y,
                             z: tr_min_z,
-                        },
-                        mid: Point {
-                            x: tr_mid_x,
-                            y: tr_mid_y,
-                            z: tr_mid_z,
                         },
                         max: Point {
                             x: tr_max_x,
@@ -230,9 +221,7 @@ fn load_cameras(path_data: &str) -> Vec<CameraRaw> {
     let file_json = fs::File::open(Path::new(path_data).join("cameras.json")).unwrap();
     let cameras_json: VecCameraJSON = serde_json::from_reader(file_json).unwrap();
     let mut cameras = Vec::<CameraRaw>::new();
-    let mut id = 0;
-    for cam in cameras_json.data {
-        id += 1;
+    for (id, cam) in cameras_json.data.into_iter().enumerate() {
         let pos = [cam.location.x, cam.location.y, cam.location.z];
         let rot = UnitQuaternion::from_euler_angles(
             cam.rotation_euler.x,
@@ -265,7 +254,7 @@ fn cast_pixels_rays(
     camera_raw: CameraRaw,
     faces: &[Tris3D],
     bvh: &BVH,
-    mut texture: &mut RgbaImage,
+    texture: &mut RgbaImage,
     properties: &Properties,
 ) {
     let img = image::open(camera_raw.image_path).unwrap();
@@ -310,11 +299,11 @@ fn cast_pixels_rays(
         face_img_to_uv(
             all_tris,
             bvh,
-            &face,
+            face,
             &iso,
             &projection,
             &img,
-            &mut texture,
+            texture,
             properties,
         );
     }
@@ -339,7 +328,7 @@ fn is_face_closest(
     let mut closest: Vec<(Option<f32>, &Tris3D)> = faces_visible
         .into_iter()
         .map(|f| (f.v_3d.ray_intersection(&ray_orig, &ray_dir), f))
-        .filter(|h| h.0 != None && !h.0.unwrap().is_nan())
+        .filter(|h| h.0.is_some() && !h.0.unwrap().is_nan())
         .collect();
     if closest.is_empty() {
         return false;
@@ -474,8 +463,8 @@ fn face_img_to_uv(
             let mut colors_to_mix = Vec::<Color>::new();
             for d in ray_disp.iter() {
                 let p_uv = Point {
-                    x: (u as f32 + d[0]) / uv_width as f32,
-                    y: (v as f32 + d[1]) / uv_height as f32,
+                    x: (u as f32 + d[0]) / uv_width,
+                    y: (v as f32 + d[1]) / uv_height,
                     z: 0.0,
                 };
                 if face.v_uv.has_point(p_uv) {
@@ -492,8 +481,8 @@ fn face_img_to_uv(
                         let cam_y = (cam_height * (p_cam.y + 1.0) / 2.0) as u32;
                         if cam_x < cam_width as u32
                             && cam_y < cam_height as u32
-                            && (uv_u as u32) < (uv_width as u32)
-                            && (uv_v as u32) < (uv_height as u32)
+                            && uv_u < uv_width as u32
+                            && uv_v < uv_height as u32
                         {
                             let face_is_visible = match properties.occlude {
                                 true => {
@@ -537,8 +526,8 @@ fn face_img_to_uv(
                                     };
 
                                     is_face_closest(
-                                        &face,
-                                        bvh.traverse(&ray, &all_tris),
+                                        face,
+                                        bvh.traverse(&ray, all_tris),
                                         ray,
                                         znear,
                                         zfar,
@@ -634,7 +623,7 @@ fn average(colors: Vec<Color>) -> Color {
 }
 
 fn median(colors: &mut Vec<Color>) -> Color {
-    colors.sort_by(|a, b| (col_len(a)).cmp(&col_len(b)));
+    colors.sort_by_key(col_len);
     colors[colors.len() / 2]
 }
 
@@ -716,8 +705,7 @@ fn expand_pixels(texture: &mut RgbaImage, limit: u8) {
         for u in 0..(width as usize) {
             let current_color = *texture.get_pixel(u as u32, v as u32);
             if current_color[3] == 0 {
-                let blended_color =
-                    blend_pixel_with_neigbhours(&texture, u as u32, v as u32, limit);
+                let blended_color = blend_pixel_with_neigbhours(texture, u as u32, v as u32, limit);
                 if blended_color[3] != 0 {
                     future_pixels.push((u as u32, v as u32, blended_color));
                 }
@@ -840,7 +828,7 @@ fn main() {
         //Export texture
         let file_name = match &udims_num {
             1 => format!("{}.png", &properties.path_texture),
-            _ => format!("{}{}{}.png", &properties.path_texture, ".", id.to_string()),
+            _ => format!("{}.{}.png", &properties.path_texture, id),
         };
         if !texture_is_empty {
             mono_texture.save(Path::new(&file_name)).unwrap();
